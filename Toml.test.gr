@@ -1,0 +1,4 @@
+module TomlTest
+// Toml Test
+assert parse("test = \"test1\"") == [("test", TomlString("test1"))]
+assert parse("test = \"test1\"") == [("test", TomlString("test1"))]

@@ -1,0 +1,253 @@
+module Toml
+
+include "array"
+include "list"
+include "string"
+include "char"
+// Toml Value
+provide enum TomlValue {
+  // Exprs
+  TomlTable(List<(String, TomlValue)>),
+  TomlArray(List<TomlValue>),
+  // Values
+  TomlString(String),
+  TomlBool(Bool),
+}
+// Helpers
+let validKeyChar = keyChar => {
+  // A-Za-z0-9_-"'
+  let keyCode = Char.code(keyChar)
+  if (keyCode >= 0x41 && keyCode <= 0x5A) {
+    // A-Z
+    true
+  } else if (keyCode >= 0x61 && keyCode <= 0x7A) {
+    // a-z
+    true
+  } else if (keyCode >= 0x30 && keyCode <= 0x39) {
+    // 0-9
+    true
+  } else if (
+    keyCode == 0x5F || keyCode == 0x2D || keyCode == 0x22 || keyCode == 0x27
+  ) {
+    // _-"'
+    true
+  } else {
+    false
+  }
+}
+let setTableElement = (rawKey, value, table) => {
+  // TODO: Handle Key Properly
+  // Parse The Key
+  let key = String.implode(Array.fromList(rawKey))
+  // Set The Value
+  [(key, value), ...table]
+}
+// Parser
+let rec parseTomlValue = strBuf => {
+  let mut strBuf = strBuf
+  match (strBuf) {
+    // Strings
+    ['"', '"', '"', ...rest] => {
+      strBuf = rest
+      let mut str = ""
+      while (true) {
+        match (strBuf) {
+          ['"', '"', '"', ...rest] => {
+            strBuf = rest
+            break
+          },
+          [strChar, ...rest] => {
+            strBuf = rest
+            str = str ++ Char.toString(strChar)
+          },
+          _ => fail "Invalid Toml String",
+        }
+      }
+      // TODO: Handle Trimming
+      (TomlString(str), strBuf)
+    },
+    ['"', ...rest] => {
+      strBuf = rest
+      let mut str = ""
+      while (true) {
+        match (strBuf) {
+          ['\\', '"', ...rest] => {
+            strBuf = rest
+            str = str ++ "\\\""
+          },
+          ['"', ...rest] => {
+            strBuf = rest
+            break
+          },
+          [strChar, ...rest] => {
+            strBuf = rest
+            str = str ++ Char.toString(strChar)
+          },
+          _ => fail "Invalid Toml String",
+        }
+      }
+      // TODO: Normalize String
+      (TomlString(str), strBuf)
+    },
+    // Boolean
+    ['t', 'r', 'u', 'e', ...rest] => {
+      (TomlBool(true), rest)
+    },
+    ['f', 'a', 'l', 's', 'e', ...rest] => {
+      (TomlBool(false), rest)
+    },
+    // Invalid
+    _ => {
+      print(strBuf)
+      fail "Invalid Toml Value"
+    },
+  }
+}
+let rec parseExpressionList = strBuf => {
+  let mut strBuf = strBuf
+  let mut currentTableName = []
+  let mut rootTable = []
+  let mut currentTable = []
+
+  let mut lastNewLine = 0
+  let mut currentLine = 0
+  while (true) {
+    match (strBuf) {
+      // Comment
+      ['#', ...rest] => {
+        strBuf = rest
+        // TODO: Handle Control Characters
+        while (true) {
+          match (strBuf) {
+            ['\r', '\n', ...rest] | ['\n', ...rest] => break,
+            [_, ...rest] => strBuf = rest,
+            _ => break,
+          }
+        }
+      },
+      // Table
+      ['[', ...rest] => {
+        strBuf = rest
+        let mut identifier = []
+        while (true) {
+          // TODO: Verify Toml
+          match (strBuf) {
+            [']', ...rest] => {
+              strBuf = rest
+              break
+            },
+            [identifierCharacter, ...rest] => {
+              identifier = [identifierCharacter, ...identifier]
+              strBuf = rest
+            },
+            _ => break,
+          }
+        }
+        if (List.length(currentTableName) == 0) {
+          // TODO: Copy to the root table
+          rootTable = List.append(rootTable, currentTable)
+        } else {
+          rootTable = setTableElement(
+            currentTableName,
+            TomlTable(List.reverse(currentTable)),
+            rootTable
+          )
+        }
+        currentTable = []
+        identifier = List.reverse(identifier)
+        currentTableName = identifier
+      },
+      // Blank Space
+      [' ', ...rest] => strBuf = rest,
+      ['\r', '\n', ...rest] | ['\n', ...rest] => {
+        // Break Table
+        if (List.length(currentTableName) != 0) {
+          rootTable = setTableElement(
+            currentTableName,
+            TomlTable(List.reverse(currentTable)),
+            rootTable
+          )
+          currentTable = []
+          currentTableName = []
+        }
+      },
+      // TODO: Handle Untrimmed lines, and tabs and stuff
+      // Done Parsing
+      [] => {
+        if (List.length(currentTableName) != 0) {
+          rootTable = setTableElement(
+            currentTableName,
+            TomlTable(List.reverse(currentTable)),
+            rootTable
+          )
+        } else if (List.length(currentTable) != 0) {
+          rootTable = List.append(currentTable, rootTable)
+        }
+        break
+      },
+      // Key Value
+      [keyStart, ...rest] when validKeyChar(keyStart) => {
+        strBuf = rest
+        let mut valueKey = [keyStart]
+        while (true) {
+          // TODO: Handle ., handle matching ending quotes
+          match (strBuf) {
+            [' ', ...rest] => {
+              strBuf = rest
+            },
+            ['=', ...rest] => {
+              strBuf = rest
+              break
+            },
+            [keyChar, ...rest] when validKeyChar(keyChar) => {
+              valueKey = [keyChar, ...valueKey]
+              strBuf = rest
+            },
+            _ => fail "Invalid Toml Expected Equal",
+          }
+        }
+        let valueKey = List.reverse(valueKey)
+        // Trim White space
+        while (true) {
+          match (strBuf) {
+            [' ', ...rest] => strBuf = rest,
+            [] => fail "Invalid Toml Expected Value",
+            _ => break,
+          }
+        }
+        // Match The Value
+        let (value, rest) = parseTomlValue(strBuf)
+        strBuf = rest
+        // TODO: Append the KeyValue to context
+        currentTable = setTableElement(valueKey, value, currentTable)
+      },
+      // Invalid Toml
+      _ => {
+        print(strBuf)
+        fail "Invalid Toml"
+      },
+    }
+    // Match The End Of Line
+    while (true) {
+      match (strBuf) {
+        // Trim End Of Line
+        [' ', ...rest] => strBuf = rest,
+        // Match End Of Expr
+        ['\r', '\n', ...rest] | ['\n', ...rest] => {
+          strBuf = rest
+          break
+        },
+        [] => break, // end of program
+        _ => fail "Invalid Toml Line End",
+      }
+    }
+  }
+  List.reverse(rootTable)
+}
+// File Api
+provide let parse = inputStr => {
+  // Explode The String
+  let inputStr = Array.toList(String.explode(inputStr))
+  // Parse The File
+  parseExpressionList(inputStr)
+}
