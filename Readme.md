@@ -8,7 +8,8 @@ This library is by no means completes
   + [ ] Expressions
     + [ ] Parse Comments
       + [x] Parsing Comments
-      + [ ] Allow comments to be parsed at the end of a line
+      + [x] Allow comments to be parsed at the end of a line
+      + [ ] Research allowing comments inside of arrays and tables
     + [x] Parse Key Values
     + [x] Parse Tables
     + [ ] Parse Array Tables
@@ -32,10 +33,10 @@ This library is by no means completes
       + [ ] Literal Multiline Strings
         + [ ] Parsing
         + [ ] Research Normalization or trimming
-    + [ ] Integers
-      + [ ] Parsing
-    + [ ] Floats
-      + [ ] Parsing
+    + [x] Integers
+      + [x] Parsing
+    + [x] Floats
+      + [x] Parsing
     + [ ] Arrays
       + [ ] Parsing
     + [ ] Inline Tables

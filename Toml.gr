@@ -4,6 +4,7 @@ include "array"
 include "list"
 include "string"
 include "char"
+include "number"
 // Toml Value
 provide enum TomlValue {
   // Exprs
@@ -12,8 +13,17 @@ provide enum TomlValue {
   // Values
   TomlString(String),
   TomlBool(Bool),
+  TomlFloat(Number),
+  TomlInt(Number)
 }
 // Helpers
+let setTableElement = (rawKey, value, table) => {
+  // TODO: Handle Key Properly
+  // Parse The Key
+  let key = String.implode(Array.fromList(rawKey))
+  // Set The Value
+  [(key, value), ...table]
+}
 let validKeyChar = keyChar => {
   // A-Za-z0-9_-"'
   let keyCode = Char.code(keyChar)
@@ -27,7 +37,7 @@ let validKeyChar = keyChar => {
     // 0-9
     true
   } else if (
-    keyCode == 0x5F || keyCode == 0x2D || keyCode == 0x22 || keyCode == 0x27
+    keyChar == '_' || keyChar == '-' || keyChar == '"' || keyChar == '\''
   ) {
     // _-"'
     true
@@ -35,12 +45,25 @@ let validKeyChar = keyChar => {
     false
   }
 }
-let setTableElement = (rawKey, value, table) => {
-  // TODO: Handle Key Properly
-  // Parse The Key
-  let key = String.implode(Array.fromList(rawKey))
-  // Set The Value
-  [(key, value), ...table]
+let isValidNumberStart = (keyChar) => {
+  let keyCode = Char.code(keyChar)
+  if (keyChar == '+' || keyChar == '-') {
+    true
+  } else if (keyCode >= 0x30 && keyCode <= 0x39) {
+    // 0-9
+    true
+  } else {
+    false
+  }
+}
+let isValidNumberCharacter = (keyChar) => {
+  let keyCode = Char.code(keyChar)
+  if (keyCode >= 0x30 && keyCode <= 0x39) {
+    // 0-9
+    true
+  } else {
+    false
+  }
 }
 // Parser
 let rec parseTomlValue = strBuf => {
@@ -95,6 +118,64 @@ let rec parseTomlValue = strBuf => {
     },
     ['f', 'a', 'l', 's', 'e', ...rest] => {
       (TomlBool(false), rest)
+    },
+    // Integer || Float
+    [keyChar, ...rest] when isValidNumberStart(keyChar) => {
+      let positive = keyChar != '-'
+      if (keyChar == '+' || keyChar == '-') strBuf = rest
+      // Nan, Inf
+      match (strBuf) {
+        [ 'n', 'a', 'n', ...rest ] => {
+          (TomlFloat(NaN), rest)
+        },
+        [ 'i', 'n', 'f', ...rest ] => {
+          (TomlFloat(Infinity), rest)
+        },
+        _ => {
+          // Slow Paths
+          let mut isFloat = false
+          let mut isInt = false
+          let mut value = ""
+          if (!positive) value = value ++ "-"
+          while (true) {
+            match (strBuf) {
+              [keyChar, ...rest] when isValidNumberCharacter(keyChar) => {
+                strBuf = rest
+                value = value ++ Char.toString(keyChar)
+              },
+              [ keyFloat, ...rest ] when keyFloat == 'e' || keyFloat == 'E' || keyFloat == '.' || keyFloat == '-' => {
+                if (isInt) fail "Invalid Toml Integer"
+                strBuf = rest
+                value = value ++ Char.toString(keyFloat)
+                isFloat = true
+              },
+              [ keyInt, ...rest ] when keyInt == 'b' || keyInt == 'o' || keyInt == 'x' => {
+                if (isFloat) fail "Invalid Toml Float"
+                strBuf = rest
+                value = value ++ Char.toString(keyInt)
+                isInt = true
+              },
+              _ => break,
+            }
+          }
+          let numberResult = match (isFloat) {
+            true => Number.parseFloat(value),
+            false => Number.parseInt(value, 10)
+          }
+          match (numberResult) {
+            Ok(num) => {
+              match (isFloat) {
+                true => (TomlFloat(num), strBuf),
+                false => (TomlInt(num), strBuf),
+              }
+            },
+            Err(_) => match (isFloat) {
+              true => fail "Invalid Toml Float",
+              false => fail "Invalid Toml Integer",
+            },
+          }
+        }
+      }
     },
     // Invalid
     _ => {
@@ -232,6 +313,8 @@ let rec parseExpressionList = strBuf => {
       match (strBuf) {
         // Trim End Of Line
         [' ', ...rest] => strBuf = rest,
+        // Comment can be ignored
+        ['#', ...rest] => strBuf = rest,
         // Match End Of Expr
         ['\r', '\n', ...rest] | ['\n', ...rest] => {
           strBuf = rest
