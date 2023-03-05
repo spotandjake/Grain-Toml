@@ -1,2 +1,4 @@
 *.gr.wasm
 Helpful Resources/
+
+.DS_Store

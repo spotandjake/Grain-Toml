@@ -1,0 +1,116 @@
+module Lexer
+include "bytes"
+include "list"
+include "string"
+// Type
+provide enum Token {
+  Literal(String),
+  Eq,
+  Sbo,
+  Cbo,
+  Sbc,
+  Cbc,
+  Hash,
+  DoubleQuote,
+  SingleQuote,
+  LineBreak,
+  CarriageReturn,
+  BackSlash,
+  Comma,
+}
+// Stream
+record Stream {
+  data: Bytes,
+  mut index: Number,
+}
+let streamFromString = (str) => {
+  let bytes = Bytes.fromString(str)
+  {
+    data: bytes,
+    index: 0,
+  }
+}
+let getStreamLength = (stream) => {
+  Bytes.length(stream.data) - stream.index
+}
+let streamIsEmpty = (stream) => {
+  getStreamLength(stream) == 0
+}
+let streamPeekUint8 = (stream) => {
+  let byte = Bytes.getUint8(stream.index, stream.data)
+  byte
+}
+let streamNextUint8 = (stream) => {
+  let byte = streamPeekUint8(stream)
+  stream.index += 1
+  byte
+}
+// Helpers
+let getSpecialByte = (n) => {
+  match (n) {
+    0x3Dus => Some(Eq), // =
+    0x5Bus => Some(Sbo), // [
+    0x5Dus => Some(Sbc), // ]
+    0x7Bus => Some(Cbo), // {
+    0x7Dus => Some(Cbc), // }
+    0x23us => Some(Hash), // #
+    0x2Cus => Some(Comma), // ,
+    0x27us => Some(SingleQuote), // '
+    0x22us => Some(DoubleQuote), // "
+    0x0Aus => Some(LineBreak), // \n
+    0x0Dus => Some(CarriageReturn), // \r
+    0x5Cus => Some(BackSlash), // \
+    _ => None,
+  }
+}
+// Lex
+provide let lex = (inputStr) => {
+  let data = streamFromString(inputStr)
+  let mut lexemes = []
+  let mut index = 0
+  while (!streamIsEmpty(data)) {
+    let byte = streamNextUint8(data)
+    let lexValue = getSpecialByte(byte)
+    match (lexValue) {
+      Some(Hash) => {
+        while (getStreamLength(data) > 0) {
+          let nextByte = streamPeekUint8(data)
+          if (nextByte == 0x0Aus) { // \n
+            break
+          } else {
+            streamNextUint8(data)
+            index += 1
+          }
+        }
+      },
+      Some(CarriageReturn) => {
+        let entry = if (!streamIsEmpty(data) && streamPeekUint8(data) == 0x0Aus) { // \n
+          streamNextUint8(data)
+          index += 1
+          LineBreak
+        } else CarriageReturn
+        lexemes = [ entry, ...lexemes ]
+      },
+      Some(x) => lexemes = [ x, ...lexemes ],
+      _ => {
+        let mut alphabetic_index = 0
+        while (!streamIsEmpty(data)) {
+          let nextByte = streamPeekUint8(data)
+          if (getSpecialByte(nextByte) == None) {
+            streamNextUint8(data)
+            alphabetic_index += 1
+          } else {
+            break
+          }
+        }
+        let relative_index = alphabetic_index + 1
+        let string_bytes = Bytes.slice(index, relative_index, data.data)
+        index += alphabetic_index
+        let string = Bytes.toString(string_bytes)
+        lexemes = [ Literal(string), ...lexemes ]
+      }
+    }
+    index += 1;
+  }
+  List.reverse(lexemes)
+}

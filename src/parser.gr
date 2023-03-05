@@ -1,0 +1,227 @@
+module Parser
+include "./lexer"
+include "list"
+include "number"
+include "char"
+include "string"
+include "array"
+// Types
+enum NumberState {
+  NumberStateUnknown,
+  NumberStateIntFloat,
+  NumberStateInt,
+  NumberStateFloat,
+  NumberStateDateTime
+}
+provide enum TomlDateTime {
+  TomlDateTime(String, String),
+  TomlDate(String),
+  TomlTime(String),
+}
+provide enum TomlValue {
+  TomlInt(Number),
+  TomlFloat(Number),
+  TomlString(String),
+  TomlArray(List<TomlValue>),
+  TomlBoolean(Bool),
+  TomlDateTime(TomlDateTime),
+  TomlTable(List<(String, TomlValue)>),
+}
+// Helpers
+let isValidNumberStart = (char) => {
+  let charCode = Char.code(char)
+  if (char == '+' || char == '-') {
+    return true
+  } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
+    return true
+  } else {
+    return false
+  }
+}
+// Key Stuff
+let isValidKeyTable = (name) => {
+  let name = String.explode(String.trim(name))
+  let is_valid = Array.every((char) => {
+    let charCode = Char.code(char)
+    if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
+      true
+    } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
+      true
+    } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
+      true
+    } else if (char == '-' || char == '_') {
+      true
+    } else {
+      false
+    }
+  }, name)
+  is_valid
+}
+// setNumberState
+let setNumberState = (curState, numberState) => {
+  if (curState == NumberStateUnknown) numberState
+  else if (curState == NumberStateIntFloat && (numberState == NumberStateInt ||numberState == NumberStateFloat))
+    numberState
+  else fail "Invalid Number"
+}
+// parseValue
+let parseLiteral = (literalValue) => {
+  // TODO: Handle Validation
+  let mut strValue = Array.toList(String.explode(String.trim(literalValue)))
+  // Determine The Token
+  match (strValue) {
+    // Int, Float
+    [ 'n', 'a', 'n'] => TomlFloat(NaN),
+    [ 'i', 'n', 'f'] => TomlFloat(Infinity),
+    [ startChar, ...rest ] when isValidNumberStart(startChar) => {
+      if (startChar != '+' && startChar != '-') strValue = [startChar, ...rest]
+      // TODO: Handle Proper Validation
+      // TODO: Handle DateTime
+      // Determine What it is
+      let sign = if (startChar == '-') -1 else 1
+      let mut numberState = NumberStateUnknown
+      // Determine Number Type
+      if (startChar != '+' && startChar != '-') numberState = setNumberState(numberState, NumberStateIntFloat)
+      if (List.contains('_', rest)) numberState = setNumberState(numberState, NumberStateIntFloat)
+      match (strValue) {
+        // NaN
+        [ '0', 'x', ...rest] => numberState = setNumberState(numberState, NumberStateInt),
+        [ '0', 'X', ...rest] => numberState = setNumberState(numberState, NumberStateInt),
+        [ '0', 'b', ...rest] => numberState = setNumberState(numberState, NumberStateInt),
+        [ '0', 'B', ...rest] => numberState = setNumberState(numberState, NumberStateInt),
+        // Float
+        [ 'n', 'a', 'n' ] => numberState = setNumberState(numberState, NumberStateFloat),
+        [ 'i', 'n', 'f' ] => numberState = setNumberState(numberState, NumberStateFloat),
+        // Otherwise
+        _ => void
+      }
+      if (List.contains('.', rest)) numberState = setNumberState(numberState, NumberStateFloat)
+      if (List.contains('+', rest)) numberState = setNumberState(numberState, NumberStateFloat)
+      if (List.contains('e', rest)) numberState = setNumberState(numberState, NumberStateFloat)
+      if (List.contains('E', rest)) numberState = setNumberState(numberState, NumberStateFloat)
+      // Parse It
+      let parseValue = String.implode(Array.fromList(strValue))
+      let val = match (numberState) {
+        NumberStateUnknown => Number.parseInt(parseValue, 10),
+        NumberStateIntFloat => Number.parseInt(parseValue, 10),
+        NumberStateInt => Number.parseInt(parseValue, 10),
+        NumberStateFloat => Number.parseFloat(parseValue),
+        // TODO: Handle Parsing DateTime
+        NumberStateDateTime => fail "Handle Parsing DateTime"
+      }
+      match (val) {
+        Ok(val) => {
+          match (numberState) {
+            NumberStateUnknown => TomlInt(val * sign),
+            NumberStateIntFloat => TomlInt(val * sign),
+            NumberStateInt => TomlInt(val * sign),
+            NumberStateFloat => TomlFloat(val * sign),
+            // TODO: Handle Parsing DateTime
+            NumberStateDateTime => fail "Currently Impossible"
+          }
+        },
+        Err(_) => fail "Unable Parse Number"
+      }
+    },
+    // Boolean
+    [ 't', 'r', 'u', 'e' ] => TomlBoolean(true),
+    [ 'f', 'a', 'l', 's', 'e' ] => TomlBoolean(false),
+    // String
+    _ => TomlString(literalValue)
+  }
+}
+let rec parseValue = (tokens) => {
+  match (tokens) {
+    // TODO: Table
+    // TODO: Array
+    [ Lexer.Sbo, ...rest ] => {
+      // TODO: validate this
+      let mut tokens = tokens
+      let mut canTakeItem = true
+      let mut items = []
+      while (true) {
+        match (tokens) {
+          [ Lexer.Comma, ...rest ] => {
+            tokens = rest
+            canTakeItem = false
+          },
+          [ Lexer.Sbc, ...rest ] => {
+            tokens = rest
+            break
+          },
+          _ => {
+            if (canTakeItem) {
+              let (value, rest) = parseValue(rest)
+              tokens = rest
+              items = [value, ...items]
+            } else {
+              fail "Invalid Toml Array"
+            }
+          }
+        }
+      }
+      (TomlArray(List.reverse(items)), rest)
+    },
+    // TODO: String
+    // Literal
+    [Lexer.Literal(literalValue), ...rest] => {
+      let value = parseLiteral(literalValue)
+      (value, rest)
+    },
+    // Invalid
+    _ => fail "Invalid Toml Value"
+  }
+}
+// parse
+provide let parse = (tokens) => {
+  let mut tokens = tokens
+  let mut rootTableContents = []
+  let mut currentTableKey = ""
+  let mut currentTable = []
+  while (List.length(tokens) > 0) {
+    // Expressions
+    match (tokens) {
+      // Table
+      [Lexer.Sbo, Lexer.Literal(tableName), Lexer.Sbc, ...rest ] => {
+        tokens = rest
+        // Parse Table Key
+        if (!isValidKeyTable(tableName)) return Err("Invalid Table Name: " ++ String.trim(tableName))
+      },
+      // Array
+      [Lexer.Sbo, Lexer.Sbo, Lexer.Literal(tableName), Lexer.Sbc, Lexer.Sbc, ...rest ] => {
+        tokens = rest
+         // Parse Table Key
+        if (!isValidKeyTable(tableName)) return Err("Invalid Table Name: " ++ String.trim(tableName))
+      },
+      // Key Value
+      [Lexer.Literal(keyName), Lexer.Eq, ...rest ] => {
+        tokens = rest
+        // TODO: Parse Table Key
+        if (!isValidKeyTable(keyName)) return Err("Invalid Key Name: " ++ String.trim(keyName))
+        // Parse Value
+        let (literalVal, rest) = parseValue(rest)
+        // TODO: This needs to handle the keyName
+        rootTableContents = [
+          (String.trim(keyName), literalVal),
+          ...currentTable
+        ]
+        tokens = rest
+      },
+      // Invalid Token
+      _ => {
+        print(tokens)
+        fail "Invalid Token"
+      }
+    }
+  }
+  // Append The CurrentTable
+  if (currentTableKey != "") {
+    // TODO: This needs to be overhauled
+    rootTableContents = [
+      (currentTableKey, TomlTable(List.reverse(currentTable))),
+      ...rootTableContents
+    ]
+  }
+  // Return
+  return Ok(TomlTable(List.reverse(rootTableContents)))
+}

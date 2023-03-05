@@ -1,0 +1,12 @@
+module LexerTest
+include "string"
+include "../src/lexer"
+// Basic Parsing
+let str = "hello world"
+assert Lexer.lex(str) == Ok([ Literal(str) )])
+// Comment Test
+let str = "# hello world"
+assert Lexer.lex(str) == Ok([ Hash, Literal(" hello world")])
+// Table Expression Test
+let str = "[test]"
+assert Lexer.lex(str) == Ok([ Sbo, Literal("test"), Sbc])

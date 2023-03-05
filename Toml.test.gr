@@ -1,4 +1,0 @@
-module TomlTest
-// Run Compliance Tests
-// Toml Test
-assert parse("test = \"test1\"") == [("test", TomlString("test1"))]
