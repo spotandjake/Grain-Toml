@@ -6,6 +6,7 @@ include "char"
 include "number"
 include "bytes"
 // TODO: Use Err, instead of fail
+// TODO: Get Rid Of Lexer, Merge With parser
 // Type
 enum LexerToken {
   // Fully Matched
@@ -13,7 +14,8 @@ enum LexerToken {
   LexedBasicMultiLineString(String),
   LexedLiteralString(String),
   LexedLiteralMultiLineString(String),
-  // TODO: Add Boolean
+  LexedBool(Bool),
+  // TODO: LexedNumeric(String, CanBeFloat, CanBeDate)
   // Unmatched
   // TODO: Consider Changing This To Literal(List<String>)
   Literal(String),
@@ -22,165 +24,11 @@ enum LexerToken {
   Cbo,
   Sbc,
   Cbc,
-  Hash,
-  DoubleQuote,
-  SingleQuote,
   LineBreak,
   CarriageReturn,
   BackSlash,
   Comma,
-  WhiteSpace,
 }
-// Stream
-record Stream {
-  data: Bytes,
-  mut index: Number,
-}
-let streamFromString = (str) => {
-  {
-    data: Bytes.fromString(str),
-    index: 0,
-  }
-}
-let streamIsEmpty = (stream) => {
-  (Bytes.length(stream.data) - stream.index) == 0
-}
-let streamPeekUint8 = (stream) => {
-  let byte = Bytes.getUint8(stream.index, stream.data)
-  byte
-}
-let streamNextUint8 = (stream) => {
-  let byte = streamPeekUint8(stream)
-  stream.index += 1
-  byte
-}
-// Helpers
-let getSpecialByte = (n) => {
-  match (n) {
-    0x3Dus => Some(Eq), // =
-    0x5Bus => Some(Sbo), // [
-    0x5Dus => Some(Sbc), // ]
-    0x7Bus => Some(Cbo), // {
-    0x7Dus => Some(Cbc), // }
-    0x23us => Some(Hash), // #
-    0x2Cus => Some(Comma), // ,
-    0x27us => Some(SingleQuote), // '
-    0x22us => Some(DoubleQuote), // "
-    0x0Aus => Some(LineBreak), // \n
-    0x0Dus => Some(CarriageReturn), // \r
-    0x5Cus => Some(BackSlash), // \
-    // WhiteSpace
-    0x20us => Some(WhiteSpace), // Space
-    0x09us => Some(WhiteSpace), // Tab
-    _ => None,
-  }
-}
-// Lex
-let lex = (inputStr) => {
-  let data = streamFromString(inputStr)
-  let mut lexemes = []
-  while (!streamIsEmpty(data)) {
-    let byte = streamNextUint8(data)
-    let lexValue = getSpecialByte(byte)
-    match (lexValue) {
-      Some(WhiteSpace) => continue,
-      Some(Hash) => {
-        while (!streamIsEmpty(data)) {
-          let nextByte = streamPeekUint8(data)
-          if (nextByte == 0x0Aus) break //\n
-          else ignore(streamNextUint8(data))
-        }
-      },
-      Some(quoteType) when quoteType == SingleQuote || quoteType == DoubleQuote => {
-        // Collect Open Quotes
-        let mut quoteCount = 1
-        let mut isMultiLine = false
-        while (!streamIsEmpty(data)) {
-          let nextByte = streamPeekUint8(data)
-          let nextValue = getSpecialByte(nextByte)
-          match (nextValue) {
-            Some(quote) when quote == quoteType => {
-              streamNextUint8(data)
-              quoteCount += 1
-            },
-            _ => break
-          }
-          if (quoteCount == 3) {
-            isMultiLine = true
-            break
-          }
-        }
-        if (quoteCount == 2) {
-          match (quoteType) {
-            SingleQuote => lexemes = [ LexedLiteralString(""), ...lexemes ],
-            DoubleQuote => lexemes = [ LexedBasicString(""), ...lexemes ],
-            _ => fail "Invalid Toml Quote Type"
-          }
-        } else {
-          let index = data.index
-          let mut endIndex = 0
-          // Match Quote's
-          let maxQuoteCount = quoteCount
-          while (!streamIsEmpty(data)) {
-            let nextByte = streamNextUint8(data)
-            let nextValue = getSpecialByte(nextByte)
-            match (nextValue) {
-              Some(BackSlash) => {
-                if (!streamIsEmpty(data)) streamNextUint8(data)
-                else fail "Invalid Toml BackSlash In String"
-                endIndex += 1
-                quoteCount = maxQuoteCount
-              },
-              Some(quote) when quote == quoteType => quoteCount -= 1,
-              _ => quoteCount = maxQuoteCount
-            }
-            endIndex += 1
-            if (quoteCount == 0) break
-          }
-          endIndex -= maxQuoteCount
-          // Collect String
-          let str = Bytes.slice(index, endIndex, data.data)
-          let str = Bytes.toString(str)
-          // Build Lexemes
-          match (quoteType) {
-            SingleQuote when isMultiLine => lexemes = [ LexedLiteralMultiLineString(str), ...lexemes ],
-            DoubleQuote when isMultiLine => lexemes = [ LexedBasicMultiLineString(str), ...lexemes ],
-            SingleQuote => lexemes = [ LexedLiteralString(str), ...lexemes ],
-            DoubleQuote => lexemes = [ LexedBasicString(str), ...lexemes ],
-            _ => fail "Invalid Toml Quote Type"
-          }
-        }
-      },
-      Some(CarriageReturn) => {
-        let entry = if (!streamIsEmpty(data) && streamPeekUint8(data) == 0x0Aus) { // \n
-          streamNextUint8(data)
-          LineBreak
-        } else CarriageReturn
-        lexemes = [ entry, ...lexemes ]
-      },
-      Some(x) => lexemes = [ x, ...lexemes ],
-      _ => {
-        let index = data.index
-        let mut alphabetic_index = 0
-        while (!streamIsEmpty(data)) {
-          let nextByte = streamPeekUint8(data)
-          if (getSpecialByte(nextByte) == None) {
-            streamNextUint8(data)
-            alphabetic_index += 1
-          } else {
-            break
-          }
-        }
-        let relative_index = alphabetic_index + 1
-        let string_bytes = Bytes.slice(index-1, relative_index, data.data)
-        let string = Bytes.toString(string_bytes)
-        lexemes = [ Literal(string), ...lexemes ]
-      }
-    }
-  }
-  List.reverse(lexemes)
-}
-// Parser
 provide enum TomlValue {
   TomlString(String),
   TomlInt(Number),
@@ -192,6 +40,343 @@ provide enum TomlValue {
   TomlTable(List<(String, TomlValue)>),
   TomlArray(List<TomlValue>),
 }
+// TODO: Rewrite This To Be Simple
+let escapeString = (str, isBasic, isMultiLine) => {
+  // Normalize Line Ending
+  let mut normalStr = ""
+  let mut str = List.reverse(str)
+  while (true) {
+    match (str) {
+      // Handle Quick Escape Sequences
+      [ '\r', '\n', ...rest ] => {
+        normalStr = normalStr ++ "\n"
+        str = rest
+      },
+      // Normal Chars
+      [ item, ...rest ] => {
+        normalStr = normalStr ++ Char.toString(item)
+        str = rest
+      },
+      [] => break
+    }
+  }
+  // Trim
+  let mut escapedStr = ""
+  let mut str = Array.toList(String.explode(normalStr))
+  // Handle Trimming
+  if (isMultiLine) {
+    match (str) {
+      [ '\n', ...rest ] => str = rest,
+      _ => void
+    }
+  }
+  // Handle Trimming
+  if (isBasic && isMultiLine) {
+    let mut tempStr = str
+    str = []
+    while (true) {
+      match (tempStr) {
+        [ '\\', '\\', ...rest] => {
+          str = [ '\\', '\\', ...str ]
+          tempStr = rest
+        },
+        [ '\\', ...rest ] => {
+          let mut tempBuffer = rest
+          let mut tempRest = rest
+          let mut isNewLine = false
+          while (true) {
+            match (tempRest) {
+              [ '\n', ...rest ] => {
+                isNewLine = true
+                tempRest = rest
+              },
+              [ ' ', ...rest ] => {
+                tempBuffer = [ ' ', ...tempBuffer ]
+                tempRest = rest
+              },
+              [ '\t', ...rest ] => {
+                tempBuffer = [ '\t', ...tempBuffer ]
+                tempRest = rest
+              },
+              [ n, ...rest ] => {
+                // If Not Is NewLine
+                if (isNewLine) {
+                  tempStr = [ n, ...rest ]
+                } else {
+                  str = [ '\\', ...str ]
+                  tempStr = tempBuffer
+                }
+                break
+              },
+              [] => {
+                tempStr = []
+                break
+              }
+            }
+          }
+        },
+        [ item, ...rest ] => {
+          str = [ item, ...str ]
+          tempStr = rest
+        },
+        [] => break
+      }
+    }
+    str = List.reverse(str)
+  }
+  // Handle Escaping
+  while (true) {
+    match (str) {
+      // Handle Quick Escape Sequences
+      [ '\\', 'b', ...rest ] when isBasic => { // Backspace
+        escapedStr = escapedStr ++ "\u0008"
+        str = rest
+      },
+      [ '\\', 't', ...rest ] when isBasic => { // Tab
+        escapedStr = escapedStr ++ "\u0009"
+        str = rest
+      },
+      [ '\\', 'n', ...rest ] when isBasic => { // LineFeed
+        escapedStr = escapedStr ++ "\u000A"
+        str = rest
+      },
+      [ '\\', 'f', ...rest ] when isBasic => { // FormFeed
+        escapedStr = escapedStr ++ "\u000C"
+        str = rest
+      },
+      [ '\\', 'r', ...rest ] when isBasic => { // Carriage Return
+        escapedStr = escapedStr ++ "\u000D"
+        str = rest
+      },
+      [ '\\', 'e', ...rest ] when isBasic => { // Escape
+        escapedStr = escapedStr ++ "\u001B"
+        str = rest
+      },
+      [ '\\', '"', ...rest ] when isBasic => { // Double Quote
+        escapedStr = escapedStr ++ "\u0022"
+        str = rest
+      },
+      [ '\\', '\\', ...rest ] when isBasic => { // BackSlash
+        escapedStr = escapedStr ++ "\u005C"
+        str = rest
+      },
+      // Unicode Escape Sequences
+      [ '\\', 'x', d0, d1, ...rest] when isBasic => {
+        let s = String.implode([> d0, d1 ])
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      [ '\\', 'u', d0, d1, d2, d3, ...rest] when isBasic => {
+        let s = String.implode([> d0, d1, d2, d3 ])
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      [ '\\', 'U', d0, d1, d2, d3, d4, d5, d6, d7, ...rest] when isBasic => {
+        let s = String.implode([> d0, d1, d2, d3, d4, d5, d6, d7 ])
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      // Normal Chars
+      [ item, ...rest ] => {
+        escapedStr = escapedStr ++ Char.toString(item)
+        str = rest
+      },
+      [] => break
+    }
+  }
+  // return escaped string
+  escapedStr
+}
+// Lex
+let lexToml = (inputStr) => {
+  let mut lexemes = []
+  let mut buffer = Array.toList(String.explode(inputStr))
+  let mut builtLiteral = []
+  while (true) {
+    let mut didHitItem = true
+    let mut canBreak = false
+    let mut scopeLexemes = []
+    match (buffer) {
+      // Done Parsing
+      [] => canBreak = true,
+      // WhiteSpace
+      [ ' ', ...rest ] | [ '\t', ...rest ] => buffer = rest,
+      [ '#', ...rest ] => {
+        buffer = rest
+        while (true) {
+          match (buffer) {
+            [ '\n', ...rest ] => break,
+            [ item, ...rest ] => buffer = rest,
+            [] => break
+          }
+        }
+      },
+      // Strings
+      [ '"', '"', '"', ...rest ] => {
+        buffer = rest
+        let mut builtStr = []
+        while (true) {
+          match (buffer) {
+            [ '"', '"', '"', ...rest ] => {
+              buffer = rest
+              break
+            },
+            [ '\\', '"', ...rest ] => {
+              buffer = rest
+              builtStr = [ '"', '\\', ...builtStr ]
+            },
+            [ '\\', '\\', ...rest ] => {
+              buffer = rest
+              builtStr = [ '\\', '\\', ...builtStr ]
+            },
+            [ item, ...rest ] => {
+              buffer = rest
+              builtStr = [ item, ...builtStr ]
+            },
+            [] => fail "Invalid Toml Multi-line Basic String"
+          }
+        }
+        scopeLexemes = [ LexedBasicMultiLineString(escapeString(builtStr, true, true)), ...scopeLexemes ]
+      },
+      [ '"', ...rest ] => {
+        buffer = rest
+        let mut builtStr = []
+        while (true) {
+          match (buffer) {
+            [ '"', ...rest ] => {
+              buffer = rest
+              break
+            },
+            [ '\\', '"', ...rest ] => {
+              buffer = rest
+              builtStr = [ '"', '\\',  ...builtStr ]
+            },
+            [ '\\', '\\', ...rest ] => {
+              buffer = rest
+              builtStr = [ '\\', '\\', ...builtStr ]
+            },
+            [ item, ...rest ] => {
+              buffer = rest
+              builtStr = [ item, ...builtStr ]
+            },
+            [] => fail "Invalid Toml Basic String"
+          }
+        }
+        scopeLexemes = [ LexedBasicString(escapeString(builtStr, true, false)), ...scopeLexemes ]
+      },
+      [ '\'', '\'', '\'', ...rest ] => {
+        buffer = rest
+        let mut builtStr = []
+        while (true) {
+          match (buffer) {
+            [ '\'', '\'', '\'', ...rest ] => {
+              buffer = rest
+              break
+            },
+            [ item, ...rest ] => {
+              buffer = rest
+              builtStr = [ item, ...builtStr ]
+            },
+            [] => fail "Invalid Toml Multi-line Literal String"
+          }
+        }
+        scopeLexemes = [ LexedLiteralMultiLineString(escapeString(builtStr, false, true)), ...scopeLexemes ]
+      },
+      [ '\'', ...rest ] => {
+        buffer = rest
+        let mut builtStr = []
+        while (true) {
+          match (buffer) {
+            [ '\'', ...rest ] => {
+              buffer = rest
+              break
+            },
+            [ item, ...rest ] => {
+              buffer = rest
+              builtStr = [ item, ...builtStr ]
+            },
+            [] => fail "Invalid Toml Literal String"
+          }
+        }
+        scopeLexemes = [ LexedLiteralString(escapeString(builtStr, false, false)), ...scopeLexemes ]
+      },
+      // Boolean
+      [ 't', 'r', 'u', 'e', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ LexedBool(true), ...scopeLexemes ]
+      },
+      [ 'f', 'a', 'l', 's', 'e', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ LexedBool(false), ...scopeLexemes ]
+      },
+      // Line Breaks
+      [ '\n', ...rest ] | [ '\r', '\n', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ LineBreak, ...scopeLexemes ]
+      },
+      [ '\r', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ CarriageReturn, ...scopeLexemes ]
+      },
+      // Symbols
+      [ '=', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Eq, ...scopeLexemes ]
+      },
+      [ '[', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Sbo, ...scopeLexemes ]
+      },
+      [ ']', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Sbc, ...scopeLexemes ]
+      },
+      [ '{', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Cbo, ...scopeLexemes ]
+      },
+      [ '}', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Cbc, ...scopeLexemes ]
+      },
+      [ ',', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ Comma, ...scopeLexemes ]
+      },
+      [ '\\', ...rest ] => {
+        buffer = rest
+        scopeLexemes = [ BackSlash, ...scopeLexemes ]
+      },
+      // Unknown Text
+      [ item, ...rest ] => {
+        buffer = rest
+        didHitItem = false
+        builtLiteral = [ item, ...builtLiteral ]
+      }
+    }
+    if (didHitItem && List.length(builtLiteral) != 0) {
+      // TODO: Make Literal Take A List
+      lexemes = [ Literal(String.implode(Array.fromList(List.reverse(builtLiteral)))), ...lexemes ]
+      builtLiteral = []
+    }
+    lexemes = List.append(scopeLexemes, lexemes)
+    if (canBreak) break
+  }
+  List.reverse(lexemes)
+}
+// Parser
 let isFloat = (str) => {
   // TODO: Validate This
   let lst = Array.toList(String.explode(String.trim(str)))
@@ -325,165 +510,6 @@ let isNumber = (str) => {
     return false
   }, lst)
 }
-// TODO: Rewrite This To Be Simple
-let escapeString = (str, isBasic, isMultiLine) => {
-  // Normalize Line Ending
-  let mut normalStr = ""
-  let mut str = Array.toList(String.explode(str))
-  while (true) {
-    match (str) {
-      // Handle Quick Escape Sequences
-      [ '\r', '\n', ...rest ] => {
-        normalStr = normalStr ++ "\n"
-        str = rest
-      },
-      // Normal Chars
-      [ item, ...rest ] => {
-        normalStr = normalStr ++ Char.toString(item)
-        str = rest
-      },
-      [] => break
-    }
-  }
-  // Trim
-  let mut escapedStr = ""
-  let mut str = Array.toList(String.explode(normalStr))
-  // Handle Trimming
-  if (isMultiLine) {
-    match (str) {
-      [ '\n', ...rest ] => str = rest,
-      _ => void
-    }
-  }
-  // Handle Trimming
-  if (isBasic && isMultiLine) {
-    let mut tempStr = str
-    str = []
-    while (true) {
-      match (tempStr) {
-        [ '\\', '\\', ...rest] => {
-          str = [ '\\', '\\', ...str ]
-          tempStr = rest
-        },
-        [ '\\', ...rest ] => {
-          let mut tempBuffer = rest
-          let mut tempRest = rest
-          let mut isNewLine = false
-          while (true) {
-            match (tempRest) {
-              [ '\n', ...rest ] => {
-                isNewLine = true
-                tempRest = rest
-              },
-              [ ' ', ...rest ] => {
-                tempBuffer = [ ' ', ...tempBuffer ]
-                tempRest = rest
-              },
-              [ '\t', ...rest ] => {
-                tempBuffer = [ '\t', ...tempBuffer ]
-                tempRest = rest
-              },
-              [ n, ...rest ] => {
-                // If Not Is NewLine
-                if (isNewLine) {
-                  tempStr = [ n, ...rest ]
-                } else {
-                  str = [ '\\', ...str ]
-                  tempStr = tempBuffer
-                }
-                break
-              },
-              [] => {
-                tempStr = []
-                break
-              }
-            }
-          }
-        },
-        [ item, ...rest ] => {
-          str = [ item, ...str ]
-          tempStr = rest
-        },
-        [] => break
-      }
-    }
-    str = List.reverse(str)
-  }
-  // Handle Escaping
-  while (true) {
-    match (str) {
-      // Handle Quick Escape Sequences
-      [ '\\', 'b', ...rest ] when isBasic => { // Backspace
-        escapedStr = escapedStr ++ "\u0008"
-        str = rest
-      },
-      [ '\\', 't', ...rest ] when isBasic => { // Tab
-        escapedStr = escapedStr ++ "\u0009"
-        str = rest
-      },
-      [ '\\', 'n', ...rest ] when isBasic => { // LineFeed
-        escapedStr = escapedStr ++ "\u000A"
-        str = rest
-      },
-      [ '\\', 'f', ...rest ] when isBasic => { // FormFeed
-        escapedStr = escapedStr ++ "\u000C"
-        str = rest
-      },
-      [ '\\', 'r', ...rest ] when isBasic => { // Carriage Return
-        escapedStr = escapedStr ++ "\u000D"
-        str = rest
-      },
-      [ '\\', 'e', ...rest ] when isBasic => { // Escape
-        escapedStr = escapedStr ++ "\u001B"
-        str = rest
-      },
-      [ '\\', '"', ...rest ] when isBasic => { // Double Quote
-        escapedStr = escapedStr ++ "\u0022"
-        str = rest
-      },
-      [ '\\', '\\', ...rest ] when isBasic => { // BackSlash
-        escapedStr = escapedStr ++ "\u005C"
-        str = rest
-      },
-      // Unicode Escape Sequences
-      [ '\\', 'x', d0, d1, ...rest] when isBasic => {
-        let s = Char.toString(d0) ++ Char.toString(d1)
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      [ '\\', 'u', d0, d1, d2, d3, ...rest] when isBasic => {
-        let s = Char.toString(d0) ++ Char.toString(d1) ++ Char.toString(d2) ++ Char.toString(d3)
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      [ '\\', 'U', d0, d1, d2, d3, d4, d5, d6, d7, ...rest] when isBasic => {
-        let s = Char.toString(d0) ++ Char.toString(d1) ++ Char.toString(d2) ++ Char.toString(d3) ++ Char.toString(d4) ++ Char.toString(d5) ++ Char.toString(d6) ++ Char.toString(d7)
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      // Normal Chars
-      [ item, ...rest ] => {
-        escapedStr = escapedStr ++ Char.toString(item)
-        str = rest
-      },
-      [] => break
-    }
-  }
-  // return escaped string
-  escapedStr
-}
 // Handle Keys
 // TODO: Rewrite All This Completely
 let isValidKeyChar = (keyChar) => {
@@ -499,7 +525,7 @@ let isValidKeyChar = (keyChar) => {
   // Invalid
   return false
 }
-let keyStructureToRoot = (rawKeyLexemes) => {
+let parseTableOrNameKey = (rawKeyLexemes) => {
   if (List.length(rawKeyLexemes) == 0) fail "Invalid Toml Key"
   // Break Apart By Dot
   let mut rawKeyLexemes = rawKeyLexemes
@@ -515,7 +541,9 @@ let keyStructureToRoot = (rawKeyLexemes) => {
           match (str) {
             [ '.', ...rest ]=> {
               str = rest
-              keyLexemes = [ Literal("."), Literal(keyBuf), ...keyLexemes ]
+              if (String.length(keyBuf) > 0) keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
+              keyLexemes = [ Literal("."), ...keyLexemes ]
+              keyBuf = ""
             },
             [ item, ...rest ] => {
               str = rest
@@ -524,11 +552,11 @@ let keyStructureToRoot = (rawKeyLexemes) => {
             [] => break
           }
         }
-        keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
+        if (String.length(keyBuf) > 0) keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
       },
       [item, ...rest] => {
         rawKeyLexemes = rest
-        keyLexemes = [ item, ...rest ]
+        keyLexemes = [ item, ...keyLexemes ]
       },
       [] => break
     }
@@ -543,13 +571,17 @@ let keyStructureToRoot = (rawKeyLexemes) => {
     // Validate
     let mut matchedDot = false
     match (rawKeyLexeme) {
-      LexedBasicString(txt) => {
+      LexedBasicString(txt) | LexedLiteralString(txt) => {
         if (!lastItemDot) fail "Invalid Toml Key"
-        keyBuffer = keyBuffer ++ escapeString(txt, true, false)
+        keyBuffer = keyBuffer ++ txt
       },
-      LexedLiteralString(txt) => {
+      LexedBool(true) => {
         if (!lastItemDot) fail "Invalid Toml Key"
-        keyBuffer = keyBuffer ++ escapeString(txt, false, false)
+        keyBuffer = keyBuffer ++ "true"
+      },
+      LexedBool(false) => {
+        if (!lastItemDot) fail "Invalid Toml Key"
+        keyBuffer = keyBuffer ++ "false"
       },
       Literal(".") => {
         if (lastItemDot) fail "Invalid Toml Key"
@@ -574,52 +606,6 @@ let keyStructureToRoot = (rawKeyLexemes) => {
   if (String.length(keyBuffer) > 0)
     keyPath = [ keyBuffer, ...keyPath]
   // Return The KeyPath
-  keyPath
-}
-let isValidKeyTable = (name) => {
-  // TODO: Improve This
-  Array.every((char) => {
-    let charCode = Char.code(char)
-    if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
-      true
-    } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
-      true
-    } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
-      true
-    } else if (char == '.') {
-      true
-    } else if (char == '-' || char == '_') {
-      true
-    } else {
-      false
-    }
-  }, String.explode(String.trim(name)))
-}
-let parseKey = (key) => {
-  // TODO: Handle Validation
-  let key = Array.toList(String.explode(String.trim(key)))
-  let mut closeString = ' '
-  let mut keyPath = []
-  let mut currentKey = ""
-  List.forEach((char) => {
-    // Handle String
-    if (char == '\'' && closeString != '"') {
-      if (closeString == '\'') closeString = ' '
-      else if (closeString == ' ') closeString = '\''
-      return
-    } else if (char == '"' && closeString != '\'') {
-      if (closeString == '"') closeString = ' '
-      else if (closeString == ' ') closeString = '"'
-      return
-    }
-    // Handle Writing Key
-    if (char == '.' && closeString == ' ') {
-      keyPath = [ currentKey, ...keyPath ]
-      currentKey = ""
-    } else currentKey = currentKey ++ Char.toString(char)
-    return
-  }, key)
-  keyPath = [ currentKey, ...keyPath ]
   List.reverse(keyPath)
 }
 let rec writeTable = (rootTable, keyPath, value) => {
@@ -721,7 +707,7 @@ let rec parseValue = (buffer) => {
               }
             }
             // Parse Key
-            let valueKey = keyStructureToRoot(List.reverse(keyTokens))
+            let valueKey = parseTableOrNameKey(List.reverse(keyTokens))
             // Parse Value
             let (value, rest) = parseValue(buffer)
             buffer = rest
@@ -758,22 +744,18 @@ let rec parseValue = (buffer) => {
             values = [ value, ...values]
           },
           // Invalid
-          _ => {
-            print(buffer)
-            fail "Invalid Toml Array"
-          }
+          _ => fail "Invalid Toml Array"
         }
       }
       (TomlArray(List.reverse(values)), buffer)
     },
     // Strings
     [ LexedLiteralString(literal), ...rest ] => (TomlString(literal), rest),
-    [ LexedLiteralMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
-    [ LexedBasicString(literal), ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
-    [ LexedBasicMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
+    [ LexedLiteralMultiLineString(literal), ...rest ] => (TomlString(literal), rest),
+    [ LexedBasicString(literal), ...rest ] => (TomlString(literal), rest),
+    [ LexedBasicMultiLineString(literal), ...rest ] => (TomlString(literal), rest),
     // Parse Literals
-    [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
-    [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),
+    [LexedBool(bool), ...rest ] => (TomlBool(bool), rest),
     // TODO: DateTime
     // Float
     [Literal(int),...rest] when isFloat(int) => {
@@ -801,34 +783,62 @@ let rec parseValue = (buffer) => {
 // Public Api
 provide let fromString = (str) => {
   // Lex
-  let mut buffer = lex(str)
+  let mut buffer = lexToml(str)
   // Parse
   let mut keyPath = []
   let mut rootTable = TomlTable([])
-  while (List.length(buffer) > 0) {
+  while (true) {
     // Expressions
     // TODO: Handle Proper Validation
     match (buffer) {
-      // Table
-      [ Sbo, Literal(tableName), Sbc, ...rest ] => {
-        buffer = rest
-        // Validate Table name
-        if (!isValidKeyTable(tableName)) fail "Invalid Table Name"
-        // Write Table Name
-        keyPath = parseKey(tableName)
-        // Write To Current Table
-        rootTable = writeTable(rootTable, keyPath, TomlTable([]))
-      },
+      // Break On Empty
+      [] => break,
       // Table Array
-      [ Sbo, Sbo, Literal(tableName), Sbc, Sbc, ...rest ] => {
+      [ Sbo, Sbo, ...rest ] => {
         buffer = rest
-        // Validate Table name
-        if (!isValidKeyTable(tableName)) fail "Invalid Table Name"
-        // Write Table Name
-        keyPath = parseKey(tableName)
+        // Parse Key
+        let mut keyTokens = []
+        while (true) {
+          match (buffer) {
+            [] => fail "Invalid Toml",
+            [ Sbc, Sbc, ...rest ] => {
+              buffer = rest
+              break
+            },
+            [item, ...rest] => {
+              buffer = rest
+              keyTokens = [item, ...keyTokens]
+            }
+          }
+        }
+        // Parse Key
+        keyPath = parseTableOrNameKey(List.reverse(keyTokens))
         // Write Current Table
         rootTable = writeTable(rootTable, keyPath, TomlArray([]))
         // TODO: Handle Writing To Arrays
+      },
+      // Table
+      [ Sbo, ...rest ] => {
+        buffer = rest
+        // Parse Key
+        let mut keyTokens = []
+        while (true) {
+          match (buffer) {
+            [ Sbc, ...rest ] => {
+              buffer = rest
+              break
+            },
+            [item, ...rest] => {
+              buffer = rest
+              keyTokens = [item, ...keyTokens]
+            },
+            [] => fail "Invalid Toml"
+          }
+        }
+        // Parse Key
+        keyPath = parseTableOrNameKey(List.reverse(keyTokens))
+        // Write To Current Table
+        rootTable = writeTable(rootTable, keyPath, TomlTable([]))
       },
       // Line Break
       [ LineBreak, LineBreak, ...rest ] => {
@@ -855,7 +865,7 @@ provide let fromString = (str) => {
           }
         }
         // Parse Key
-        let valueKey = keyStructureToRoot(List.reverse(keyTokens))
+        let valueKey = parseTableOrNameKey(List.reverse(keyTokens))
         // Parse Value
         let (value, rest) = parseValue(buffer)
         buffer = rest
