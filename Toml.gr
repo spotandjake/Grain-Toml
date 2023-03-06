@@ -9,6 +9,10 @@ include "bytes"
 // Type
 enum LexerToken {
   Literal(String),
+  BasicString(String),
+  BasicMultiLineString(String),
+  LiteralString(String),
+  LiteralMultiLineString(String),
   Eq,
   Sbo,
   Cbo,
@@ -97,10 +101,17 @@ let lex = (inputStr) => {
             },
             _ => break
           }
-          if (quoteCount == 3) break
+          if (quoteCount == 3) {
+            isMultiLine = true
+            break
+          }
         }
         if (quoteCount == 2) {
-          lexemes = [ quoteType, Literal(""), quoteType, ...lexemes ]
+          match (quoteType) {
+            SingleQuote => lexemes = [ LiteralString(""), ...lexemes ],
+            DoubleQuote => lexemes = [ BasicString(""), ...lexemes ],
+            _ => fail "Invalid Toml Quote Type"
+          }
         } else {
           let index = data.index
           let mut endIndex = 0
@@ -132,12 +143,12 @@ let lex = (inputStr) => {
           let str = Bytes.slice(index, endIndex, data.data)
           let str = Bytes.toString(str)
           // Build Lexemes
-          for (let mut i = 0; i < maxQuoteCount; i += 1) {
-            lexemes = [ quoteType, ...lexemes ]
-          }
-          lexemes = [ Literal(str), ...lexemes ]
-          for (let mut i = 0; i < maxQuoteCount; i += 1) {
-            lexemes = [ quoteType, ...lexemes ]
+          match (quoteType) {
+            SingleQuote when isMultiLine => lexemes = [ LiteralMultiLineString(str), ...lexemes ],
+            DoubleQuote when isMultiLine => lexemes = [ BasicMultiLineString(str), ...lexemes ],
+            SingleQuote => lexemes = [ LiteralString(str), ...lexemes ],
+            DoubleQuote => lexemes = [ BasicString(str), ...lexemes ],
+            _ => fail "Invalid Toml Quote Type"
           }
         }
       },
@@ -650,10 +661,10 @@ let rec parseValue = (buffer) => {
       (TomlArray(List.reverse(values)), buffer)
     },
     // Strings
-    [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
-    [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
-    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
-    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
+    [ LiteralString(literal), ...rest ] => (TomlString(literal), rest),
+    [ LiteralMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
+    [ BasicString(literal), ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
+    [ BasicMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
     // Parse Literals
     [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
     [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),
@@ -713,6 +724,13 @@ provide let fromString = (str) => {
         rootTable = writeTable(rootTable, keyPath, TomlArray([]))
         // TODO: Handle Writing To Arrays
       },
+      // Line Break
+      [ LineBreak, LineBreak, ...rest ] => {
+        buffer = rest
+        // Reset Current Table Name
+        keyPath = []
+      },
+      [ LineBreak, ...rest ] => buffer = rest,
       // Key Value
       [ Literal(keyName), Eq, ...rest ] => {
         buffer = rest
@@ -726,13 +744,6 @@ provide let fromString = (str) => {
         // Write To Current Table
         rootTable = writeTable(rootTable, key, value)
       },
-      // Line Break
-      [ LineBreak, LineBreak, ...rest ] => {
-        buffer = rest
-        // Reset Current Table Name
-        keyPath = []
-      },
-      [ LineBreak, ...rest ] => buffer = rest,
       // Invalid
       _ => fail "Invalid Toml"
     }
