@@ -830,53 +830,50 @@ poundcomment = \"But there are # some comments here.\" # Did I # mess you up?
 // Random
 assert fromString("") == Ok(TomlTable([]))
 // TODO: Random.example - Support Dates
-// TODO: FIXME
-// assert fromString("
-// [a.b.c]
-// answer = 42
+assert fromString("
+[a.b.c]
+answer = 42
 
-// [a]
-// better = 43
-// ") == Ok(TomlTable([
-//   ("a", TomlTable([
-//     ("b", TomlTable([
-//       ("c", TomlTable([
-//         ("answer", TomlInt(42))
-//       ]))
-//     ])),
-//     ("better", TomlInt(43))
-//   ]))
-// ]))
-// TODO: FIXME
-// assert fromString("
-// [a]
-// better = 43
+[a]
+better = 43
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ])),
+    ("better", TomlInt(43))
+  ]))
+]))
+assert fromString("
+[a]
+better = 43
 
-// [a.b.c]
-// answer = 42
-// ") == Ok(TomlTable([
-//   ("a", TomlTable([
-//     ("better", TomlInt(43)),
-//     ("b", TomlTable([
-//       ("c", TomlTable([
-//         ("answer", TomlInt(42))
-//       ]))
-//     ]))
-//   ]))
-// ]))
-// TODO: FIXME
-// assert fromString("
-// [a.b.c]
-// answer = 42
-// ") == Ok(TomlTable([
-//   ("a", TomlTable([
-//     ("b", TomlTable([
-//       ("c", TomlTable([
-//         ("answer", TomlInt(42))
-//       ]))
-//     ]))
-//   ]))
-// ]))
+[a.b.c]
+answer = 42
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("better", TomlInt(43)),
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ]))
+  ]))
+]))
+assert fromString("
+[a.b.c]
+answer = 42
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ]))
+  ]))
+]))
 assert fromString("os = \"DOS\"\r\nnewline = \"crlf\"\r\n") == Ok(TomlTable([
   ("os", TomlString("DOS")),
   ("newline", TomlString("crlf"))

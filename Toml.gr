@@ -182,6 +182,7 @@ provide enum TomlValue {
   TomlTable(List<(String, TomlValue)>),
   TomlArray(List<TomlValue>),
 }
+// Rewrite This Completely
 let isValidKeyTable = (name) => {
   // TODO: Improve This
   Array.every((char) => {
@@ -234,8 +235,30 @@ let rec writeTable = (rootTable, keyPath, value) => {
   match (keyPath) {
     [ pathItem ] => match (rootTable) {
       TomlTable(tableContents) => {
-        // Search Table
-        TomlTable(List.append(tableContents, [ (pathItem, value) ]))
+        let hasKeyPath = List.some(((keyName, _)) => keyName == pathItem, tableContents)
+        // If Value Is A Table Or Array Merge
+        if (hasKeyPath) {
+          let mut hasFoundItem = false
+          TomlTable((List.map(((keyName, keyValue)) => {
+            if (!hasFoundItem && keyName == pathItem) {
+              hasFoundItem = true
+              match (keyValue) {
+                TomlTable(contents) => {
+                  match (value) {
+                    TomlTable(newContents) => {
+                      (keyName, TomlTable(List.append(contents, newContents)))
+                    },
+                    _ => fail "Invalid Toml Table Write"
+                  }
+                },
+                _ => fail "Invalid Toml Table Write"
+              }
+            } else (keyName, keyValue)
+          }, tableContents)))
+        } else {
+          // Search Table
+          TomlTable(List.append(tableContents, [ (pathItem, value) ]))
+        }
       },
       _ => fail "Invalid Toml Array Write"
     },
@@ -630,8 +653,6 @@ let rec parseValue = (buffer) => {
     [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
     [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
     [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
-    // TODO: Handle Trimming
-    // TODO: Handle Newline Backslash
     [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
     // Parse Literals
     [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
