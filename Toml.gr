@@ -84,53 +84,57 @@ let lex = (inputStr) => {
         }
       },
       Some(quoteType) when quoteType == SingleQuote || quoteType == DoubleQuote => {
-        lexemes = [ quoteType, ...lexemes]
-        let mut index = data.index
-        let mut alphabetic_index = 0
-        let mut maxQuoteCount = 1
+        // Collect Open Quotes
         let mut quoteCount = 1
-        let mut hasHitSomething = false
-        // TODO: Fix This, Validate Different String Sizes
+        let mut isMultiLine = false
         while (!streamIsEmpty(data)) {
           let nextByte = streamPeekUint8(data)
           let nextValue = getSpecialByte(nextByte)
           match (nextValue) {
-            Some(BackSlash) when quoteType == DoubleQuote => {
-              alphabetic_index += 2
-              streamNextUint8(data)
-              if (!streamIsEmpty(data)) {
-                streamNextUint8(data)
-                void
-              }
-            },
             Some(quote) when quote == quoteType => {
               streamNextUint8(data)
-              if (!hasHitSomething) {
-                index += 1
-                quoteCount += 1
-                maxQuoteCount += 1
-                lexemes = [ quoteType, ...lexemes]
-              } else if (quoteCount > 1) {
-                quoteCount -= 1
-              } else {
-                alphabetic_index += 1
-                break
-              }
+              quoteCount += 1
             },
-            _ => {
-              hasHitSomething = true
-              quoteCount = maxQuoteCount
-              streamNextUint8(data)
-              alphabetic_index += 1
-            },
+            _ => break
           }
+          if (quoteCount == 3) break
         }
-        let relative_index = alphabetic_index - 1
-        let string_bytes = Bytes.slice(index, relative_index, data.data)
-        let string = Bytes.toString(string_bytes)
-        lexemes = [ Literal(string), ...lexemes ]
-        for (let mut i = 0; i < maxQuoteCount; i += 1) {
-          lexemes = [ quoteType, ...lexemes ]
+        if (quoteCount == 2) {
+          lexemes = [ quoteType, Literal(""), quoteType, ...lexemes ]
+        } else {
+          let index = data.index
+          let mut endIndex = 0
+          // Match Quote's
+          let maxQuoteCount = quoteCount
+          while (!streamIsEmpty(data)) {
+            let nextByte = streamNextUint8(data)
+            let nextValue = getSpecialByte(nextByte)
+            match (nextValue) {
+              Some(BackSlash) => {
+                if (!streamIsEmpty(data)) streamNextUint8(data)
+                else fail "Invalid Toml BackSlash In String"
+                endIndex += 2
+                quoteCount = maxQuoteCount
+              },
+              Some(quote) when quote == quoteType => quoteCount -= 1,
+              _ => {
+                endIndex += 1
+                quoteCount = maxQuoteCount
+              }
+            }
+            if (quoteCount == 0) break
+          }
+          // Collect String
+          let str = Bytes.slice(index, endIndex, data.data)
+          let str = Bytes.toString(str)
+          // Build Lexemes
+          for (let mut i = 0; i < maxQuoteCount; i += 1) {
+            lexemes = [ quoteType, ...lexemes ]
+          }
+          lexemes = [ Literal(str), ...lexemes ]
+          for (let mut i = 0; i < maxQuoteCount; i += 1) {
+            lexemes = [ quoteType, ...lexemes ]
+          }
         }
       },
       Some(CarriageReturn) => {
@@ -390,29 +394,132 @@ let isNumber = (str) => {
 }
 // TODO: Make This Proper
 // TODO: Handle Escaping
-let escapeString = (str, trimString) => {
-  let mut str = str
-  if (trimString) {
-    match (Array.toList(String.explode(str))) {
-      [ '\n', ...rest ] => {
-        str = String.implode(Array.fromList(rest))
+let escapeString = (str, isBasic, isMultiLine) => {
+  // Normalize Line Ending
+  let mut normalStr = ""
+  let mut str = Array.toList(String.explode(str))
+  while (true) {
+    match (str) {
+      // Handle Quick Escape Sequences
+      [ '\r', '\n', ...rest ] => {
+        normalStr = normalStr ++ "\n"
+        str = rest
       },
+      // Normal Chars
+      [ item, ...rest ] => {
+        normalStr = normalStr ++ Char.toString(item)
+        str = rest
+      },
+      [] => break
+    }
+  }
+  // Trim
+  let mut escapedStr = ""
+  let mut str = Array.toList(String.explode(normalStr))
+  // Handle Trimming
+  if (isMultiLine) {
+    match (str) {
+      [ '\n', ...rest ] => str = rest,
       _ => void
     }
   }
-  let str = String.replaceAll("\\b", "\u0008", str) // Backspace
-  let str = String.replaceAll("\\t", "\u0009", str) // Tab
-  let str = String.replaceAll("\\n", "\u000A", str) // LineFeed
-  let str = String.replaceAll("\\f", "\u000C", str) // FormFeed
-  let str = String.replaceAll("\\r", "\u000D", str) // Carriage Return
-  let str = String.replaceAll("\\e", "\u001B", str) // Carriage Return
-  let str = String.replaceAll("\\\"", "\u0022", str) // Quote
-  let str = String.replaceAll("\\\\", "\u005C", str) // BackSlash
-  // TODO: Implement Unicode Types Below
-  // \xHH       - unicode         (U+00HH)
-  // \uHHHH     - unicode         (U+HHHH)
-  // \UHHHHHHHH - unicode         (U+HHHHHHHH)
-  str
+  // Handle Escaping
+  while (true) {
+    match (str) {
+      // Handle Quick Escape Sequences
+      [ '\\', 'b', ...rest ] when isBasic => { // Backspace
+        escapedStr = escapedStr ++ "\u0008"
+        str = rest
+      },
+      [ '\\', 't', ...rest ] when isBasic => { // Tab
+        escapedStr = escapedStr ++ "\u0009"
+        str = rest
+      },
+      [ '\\', 'n', ...rest ] when isBasic => { // LineFeed
+        escapedStr = escapedStr ++ "\u000A"
+        str = rest
+      },
+      [ '\\', 'f', ...rest ] when isBasic => { // FormFeed
+        escapedStr = escapedStr ++ "\u000C"
+        str = rest
+      },
+      [ '\\', 'r', ...rest ] when isBasic => { // Carriage Return
+        escapedStr = escapedStr ++ "\u000D"
+        str = rest
+      },
+      [ '\\', 'e', ...rest ] when isBasic => { // Escape
+        escapedStr = escapedStr ++ "\u001B"
+        str = rest
+      },
+      [ '\\', '"', ...rest ] when isBasic => { // Double Quote
+        escapedStr = escapedStr ++ "\u0022"
+        str = rest
+      },
+      [ '\\', '\\', ...rest ] when isBasic => { // BackSlash
+        escapedStr = escapedStr ++ "\u005C"
+        str = rest
+      },
+      // Unicode Escape Sequences
+      [ '\\', 'x', d0, d1, ...rest] when isBasic => {
+        let s = Char.toString(d0) ++ Char.toString(d1)
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      [ '\\', 'u', d0, d1, d2, d3, ...rest] when isBasic => {
+        let s = Char.toString(d0) ++ Char.toString(d1) ++ Char.toString(d2) ++ Char.toString(d3)
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      [ '\\', 'U', d0, d1, d2, d3, d4, d5, d6, d7, ...rest] when isBasic => {
+        let s = Char.toString(d0) ++ Char.toString(d1) ++ Char.toString(d2) ++ Char.toString(d3) ++ Char.toString(d4) ++ Char.toString(d5) ++ Char.toString(d6) ++ Char.toString(d7)
+        let i = Number.parseInt(s, 16)
+        match (i) {
+          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
+          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
+        }
+        str = rest
+      },
+      // Normal Chars
+      [ item, ...rest ] => {
+        escapedStr = escapedStr ++ Char.toString(item)
+        str = rest
+      },
+      [] => break
+    }
+  }
+  // handle trailing \
+  if (isBasic && isMultiLine) {
+    let mut lines = String.split("\n", escapedStr)
+    escapedStr = ""
+    let mut lastLineTrim = false
+    Array.forEachi((line, index) => {
+      let mut line = line
+      if (index != Array.length(lines) - 1) line = line ++ "\n"
+      // Handle Trimming
+      if (lastLineTrim) {
+        line = String.trimStart(line)
+      }
+      if (String.endsWith("\\", String.trimEnd(line))) {
+        lastLineTrim = true
+        // TODO: Get Rid Of The Slash
+        line = String.trimEnd(line)
+        line = String.slice(0, -1, line)
+      } else {
+        lastLineTrim = false
+      }
+      escapedStr = escapedStr ++ line
+    }, lines)
+  }
+  // return escaped string
+  escapedStr
 }
 // Parsers
 let rec parseValue = (buffer) => {
@@ -481,20 +588,18 @@ let rec parseValue = (buffer) => {
             values = [ value, ...values]
           },
           // Invalid
-          _ => {
-            fail "Invalid Toml Array"
-          }
+          _ => fail "Invalid Toml Array"
         }
       }
       (TomlArray(List.reverse(values)), buffer)
     },
     // Strings
     [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
-    [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(literal), rest),
-    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal, false)), rest),
+    [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
+    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
     // TODO: Handle Trimming
     // TODO: Handle Newline Backslash
-    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true)), rest),
+    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
     // Parse Literals
     [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
     [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),

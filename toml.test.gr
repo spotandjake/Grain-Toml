@@ -577,7 +577,11 @@ test = \"\\\"one\\\"\"
 ") == Ok(TomlTable([
   ("test", TomlString("\"one\""))
 ]))
-// TODO: string.empty - Fix String Parsing
+assert fromString("
+answer = \"\"
+") == Ok(TomlTable([
+  ("answer", TomlString(""))
+]))
 assert fromString("
 esc = \"\\e There is no escape! \\e\"
 ") == Ok(TomlTable([
@@ -588,9 +592,147 @@ answer = \"\\\\x64\"
 ") == Ok(TomlTable([
   ("answer", TomlString("\\x64"))
 ]))
-// TODO: String.escapes - Support Unicode Escapes
-// TODO: String.hex-escapes - Support Unicode Escapes
-// TODO: String.multiline-escapes - Improve String Parsings
+assert fromString("
+answer = \"\\\\x64\"
+") == Ok(TomlTable([
+  ("answer", TomlString("\\x64"))
+]))
+assert fromString("
+backspace = \"This string has a \\b backspace character.\"
+tab = \"This string has a \\t tab character.\"
+newline = \"This string has a \\n new line character.\"
+formfeed = \"This string has a \\f form feed character.\"
+carriage = \"This string has a \\r carriage return character.\"
+quote = \"This string has a \\\" quote character.\"
+backslash = \"This string has a \\\\ backslash character.\"
+notunicode1 = \"This string does not have a unicode \\\\u escape.\"
+notunicode2 = \"This string does not have a unicode \\u005Cu escape.\"
+notunicode3 = \"This string does not have a unicode \\\\u0075 escape.\"
+notunicode4 = \"This string does not have a unicode \\\\\u0075 escape.\"
+delete = \"This string has a \\u007F delete control code.\"
+unitseparator = \"This string has a \\u001F unit separator control code.\"
+") == Ok(TomlTable([
+  ("backspace", TomlString("This string has a \u0008 backspace character.")),
+  ("tab", TomlString("This string has a \t tab character.")),
+  ("newline", TomlString("This string has a \n new line character.")),
+  ("formfeed", TomlString("This string has a \u000c form feed character.")),
+  ("carriage", TomlString("This string has a \r carriage return character.")),
+  ("quote", TomlString("This string has a \" quote character.")),
+  ("backslash", TomlString("This string has a \\ backslash character.")),
+  ("notunicode1", TomlString("This string does not have a unicode \\u escape.")),
+  ("notunicode2", TomlString("This string does not have a unicode \\u escape.")),
+  ("notunicode3", TomlString("This string does not have a unicode \\u0075 escape.")),
+  ("notunicode4", TomlString("This string does not have a unicode \\u escape.")),
+  ("delete", TomlString("This string has a  delete control code.")),
+  ("unitseparator", TomlString("This string has a \u001f unit separator control code."))
+]))
+assert fromString("
+# \\x for the first 255 codepoints
+
+whitespace      = \"\\x20 \\x09 \\x1b \\x0d\\x0a\"
+bs              = \"\\x7f\"
+nul             = \"\\x00\"
+hello           = \"\\x68\\x65\\x6c\\x6c\\x6f\\x0a\"
+higher-than-127 = \"S\\xf8rmirb\\xe6ren\"
+
+multiline = \"\"\"
+\\x20 \\x09 \\x1b \\x0d\\x0a
+\\x7f
+\\x00
+\\x68\\x65\\x6c\\x6c\\x6f\\x0a
+\\x53\\xF8\\x72\\x6D\\x69\\x72\\x62\\xE6\\x72\\x65\\x6E
+\"\"\"
+
+# Not inside literals.
+literal = '\\x20 \\x09 \\x0d\\x0a'
+multiline-literal = '''
+\\x20 \\x09 \\x0d\\x0a
+'''
+") == Ok(TomlTable([
+  ("whitespace", TomlString("  \t \u001b \r\n")),
+  ("bs", TomlString("")),
+  ("nul", TomlString("\u0000")),
+  ("hello", TomlString("hello\n")),
+  ("higher-than-127", TomlString("Sørmirbæren")),
+  ("multiline", TomlString("  \t \u001b \r\n\n\n\u0000\nhello\n\nSørmirbæren\n")),
+  ("literal", TomlString("\\x20 \\x09 \\x0d\\x0a")),
+  ("multiline-literal", TomlString("\\x20 \\x09 \\x0d\\x0a\n"))
+]))
+assert fromString("
+equivalent_three = \"\"\"\\
+       The quick brown \\
+       fox jumps over \\
+       the lazy dog.\\
+       \"\"\"
+") == Ok(TomlTable([
+  ("equivalent_three", TomlString("The quick brown fox jumps over the lazy dog."))
+]))
+assert fromString("0=\"\"\"\\\r\n\"\"\"") == Ok(TomlTable([
+  ("0", TomlString(""))
+]))
+assert fromString("lit_one = ''''one quote''''") == Ok(TomlTable([
+  ("lit_one", TomlString(" 'one quote' "))
+]))
+// assert fromString("
+// lit_one = ''''one quote''''
+// # lit_two = '''''two quotes'''''
+// # lit_one_space = ''' 'one quote' '''
+// # lit_two_space = ''' ''two quotes'' '''
+
+// # one = \"\"\"\"one quote\"\"\"\"
+// # two = \"\"\"\"\"two quotes\"\"\"\"\"
+// # one_space = \"\"\" \"one quote\" \"\"\"
+// # two_space = \"\"\" \"\"two quotes\"\" \"\"\"
+
+// # mismatch1 = \"\"\"aaa'''bbb\"\"\"
+// # mismatch2 = '''aaa\"\"\"bbb'''
+
+// # escaped = \"\"\"lol\\\"\"\"\"\"\"
+// ") == Ok(TomlTable([
+//   ("lit_one", TomlString("'one quote'"))
+// ]))
+// {
+//   "escaped": {
+//     "type": "string",
+//     "value": "lol\"\"\""
+//   },
+//   "lit_one_space": {
+//     "type": "string",
+//     "value": " 'one quote' "
+//   },
+//   "lit_two": {
+//     "type": "string",
+//     "value": "''two quotes''"
+//   },
+//   "lit_two_space": {
+//     "type": "string",
+//     "value": " ''two quotes'' "
+//   },
+//   "mismatch1": {
+//     "type": "string",
+//     "value": "aaa'''bbb"
+//   },
+//   "mismatch2": {
+//     "type": "string",
+//     "value": "aaa\"\"\"bbb"
+//   },
+//   "one": {
+//     "type": "string",
+//     "value": "\"one quote\""
+//   },
+//   "one_space": {
+//     "type": "string",
+//     "value": " \"one quote\" "
+//   },
+//   "two": {
+//     "type": "string",
+//     "value": "\"\"two quotes\"\""
+//   },
+//   "two_space": {
+//     "type": "string",
+//     "value": " \"\"two quotes\"\" "
+//   }
+// }
 // TODO: String.multiline-qoutes - Improve String Parsing
 // TODO: String.multiline - Improve String Parsing
 // TODO: String.nl - Improve String Parsing
