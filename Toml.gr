@@ -8,11 +8,13 @@ include "bytes"
 // TODO: Use Err, instead of fail
 // Type
 enum LexerToken {
-  Literal(String),
+  // Fully Matched
   BasicString(String),
   BasicMultiLineString(String),
   LiteralString(String),
   LiteralMultiLineString(String),
+  // Semi Matched
+  Literal(String),
   Eq,
   Sbo,
   Cbo,
@@ -124,18 +126,13 @@ let lex = (inputStr) => {
               Some(BackSlash) => {
                 if (!streamIsEmpty(data)) streamNextUint8(data)
                 else fail "Invalid Toml BackSlash In String"
-                endIndex += 2
-                quoteCount = maxQuoteCount
-              },
-              Some(quote) when quote == quoteType => {
-                endIndex += 1
-                quoteCount -= 1
-              },
-              _ => {
                 endIndex += 1
                 quoteCount = maxQuoteCount
-              }
+              },
+              Some(quote) when quote == quoteType => quoteCount -= 1,
+              _ => quoteCount = maxQuoteCount
             }
+            endIndex += 1
             if (quoteCount == 0) break
           }
           endIndex -= maxQuoteCount
