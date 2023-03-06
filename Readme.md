@@ -6,14 +6,14 @@ This library is by no means completes
 ## Tests
 + [ ] Parsing
   + [ ] Expressions
-    + [ ] Parse Comments
+    + [x] Parse Comments
       + [x] Parsing Comments
       + [x] Allow comments to be parsed at the end of a line
-      + [ ] Research allowing comments inside of arrays and tables
+      + [x] Research allowing comments inside of arrays and tables
     + [x] Parse Key Values
     + [x] Parse Tables
-    + [ ] Parse Array Tables
-    + [ ] Parse keys such as `a.b` in Table headers and Key Value Pairs
+    + [x] Parse Array Tables
+    + [x] Parse keys such as `a.b` in Table headers and Key Value Pairs
     + [ ] Ensure keys are valid
     + [ ] Properly Parse String Keys
     + [ ] Properly handle empty string keys
@@ -27,20 +27,18 @@ This library is by no means completes
       + [ ] Basic Multiline Strings
         + [x] Parsing
         + [ ] Trimming
-      + [ ] Literal Strings
-        + [ ] Parsing
-        + [ ] Research Normalization or trimming
-      + [ ] Literal Multiline Strings
-        + [ ] Parsing
-        + [ ] Research Normalization or trimming
+      + [x] Literal Strings
+        + [x] Parsing
+      + [x] Literal Multiline Strings
+        + [x] Parsing
     + [x] Integers
       + [x] Parsing
     + [x] Floats
       + [x] Parsing
-    + [ ] Arrays
-      + [ ] Parsing
-    + [ ] Inline Tables
-      + [ ] Parsing
+    + [x] Arrays
+      + [x] Parsing
+    + [x] Inline Tables
+      + [x] Parsing
     + [ ] Date's
       + [ ] Parsing
       + [ ] Determine how we want to represent these
@@ -49,5 +47,3 @@ This library is by no means completes
 + [ ] Testing
   + [ ] Parsing
     + [ ] Run The Toml Verification Tests through to ensure full coverage and compliance with the spec.
-+ [ ] Refactor
-  + [ ] After everything else is done we need to go back through and refactor the entire library for performance and readability.

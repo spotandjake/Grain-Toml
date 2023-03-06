@@ -4,16 +4,169 @@ include "array"
 include "list"
 include "char"
 include "number"
-include "./src/lexer"
-from Lexer use {
-  type Token
+include "bytes"
+// TODO: Use Err, instead of fail
+// Type
+enum LexerToken {
+  Literal(String),
+  Eq,
+  Sbo,
+  Cbo,
+  Sbc,
+  Cbc,
+  Hash,
+  DoubleQuote,
+  SingleQuote,
+  LineBreak,
+  CarriageReturn,
+  BackSlash,
+  Comma,
+  WhiteSpace,
 }
-// Lexer
+// Stream
+record Stream {
+  data: Bytes,
+  mut index: Number,
+}
+let streamFromString = (str) => {
+  {
+    data: Bytes.fromString(str),
+    index: 0,
+  }
+}
+let streamIsEmpty = (stream) => {
+  (Bytes.length(stream.data) - stream.index) == 0
+}
+let streamPeekUint8 = (stream) => {
+  let byte = Bytes.getUint8(stream.index, stream.data)
+  byte
+}
+let streamNextUint8 = (stream) => {
+  let byte = streamPeekUint8(stream)
+  stream.index += 1
+  byte
+}
+// Helpers
+let getSpecialByte = (n) => {
+  match (n) {
+    0x3Dus => Some(Eq), // =
+    0x5Bus => Some(Sbo), // [
+    0x5Dus => Some(Sbc), // ]
+    0x7Bus => Some(Cbo), // {
+    0x7Dus => Some(Cbc), // }
+    0x23us => Some(Hash), // #
+    0x2Cus => Some(Comma), // ,
+    0x27us => Some(SingleQuote), // '
+    0x22us => Some(DoubleQuote), // "
+    0x0Aus => Some(LineBreak), // \n
+    0x0Dus => Some(CarriageReturn), // \r
+    0x5Cus => Some(BackSlash), // \
+    // WhiteSpace
+    0x20us => Some(WhiteSpace), // Space
+    0x09us => Some(WhiteSpace), // Tab
+    _ => None,
+  }
+}
+// Lex
+let lex = (inputStr) => {
+  let data = streamFromString(inputStr)
+  let mut lexemes = []
+  while (!streamIsEmpty(data)) {
+    let byte = streamNextUint8(data)
+    let lexValue = getSpecialByte(byte)
+    match (lexValue) {
+      Some(WhiteSpace) => continue,
+      Some(Hash) => {
+        while (!streamIsEmpty(data)) {
+          let nextByte = streamPeekUint8(data)
+          if (nextByte == 0x0Aus) break //\n
+          else ignore(streamNextUint8(data))
+        }
+      },
+      Some(quoteType) when quoteType == SingleQuote || quoteType == DoubleQuote => {
+        lexemes = [ quoteType, ...lexemes]
+        let mut index = data.index
+        let mut alphabetic_index = 0
+        let mut maxQuoteCount = 1
+        let mut quoteCount = 1
+        let mut hasHitSomething = false
+        while (!streamIsEmpty(data)) {
+          let nextByte = streamPeekUint8(data)
+          let nextValue = getSpecialByte(nextByte)
+          match (nextValue) {
+            Some(BackSlash) when quoteType == DoubleQuote => {
+              alphabetic_index += 2
+              streamNextUint8(data)
+              if (!streamIsEmpty(data)) {
+                streamNextUint8(data)
+                void
+              }
+            },
+            Some(quote) when quote == quoteType => {
+              streamNextUint8(data)
+              if (!hasHitSomething) {
+                index += 1
+                quoteCount += 1
+                maxQuoteCount += 1
+                lexemes = [ quoteType, ...lexemes]
+              } else if (quoteCount > 1) {
+                quoteCount -= 1
+              } else {
+                alphabetic_index += 1
+                break
+              }
+            },
+            _ => {
+              hasHitSomething = true
+              quoteCount = maxQuoteCount
+              streamNextUint8(data)
+              alphabetic_index += 1
+            },
+          }
+        }
+        let relative_index = alphabetic_index - 1
+        let string_bytes = Bytes.slice(index, relative_index, data.data)
+        let string = Bytes.toString(string_bytes)
+        lexemes = [ Literal(string), ...lexemes ]
+        for (let mut i = 0; i < maxQuoteCount; i += 1) {
+          lexemes = [ quoteType, ...lexemes ]
+        }
+      },
+      Some(CarriageReturn) => {
+        let entry = if (!streamIsEmpty(data) && streamPeekUint8(data) == 0x0Aus) { // \n
+          streamNextUint8(data)
+          LineBreak
+        } else CarriageReturn
+        lexemes = [ entry, ...lexemes ]
+      },
+      Some(x) => lexemes = [ x, ...lexemes ],
+      _ => {
+        let index = data.index
+        let mut alphabetic_index = 0
+        while (!streamIsEmpty(data)) {
+          let nextByte = streamPeekUint8(data)
+          if (getSpecialByte(nextByte) == None) {
+            streamNextUint8(data)
+            alphabetic_index += 1
+          } else {
+            break
+          }
+        }
+        let relative_index = alphabetic_index + 1
+        let string_bytes = Bytes.slice(index-1, relative_index, data.data)
+        let string = Bytes.toString(string_bytes)
+        lexemes = [ Literal(string), ...lexemes ]
+      }
+    }
+  }
+  List.reverse(lexemes)
+}
+// Parser
 provide enum TomlValue {
   TomlString(String),
-  TomlInteger(Number),
+  TomlInt(Number),
   TomlFloat(Number),
-  TomlBoolean(Bool),
+  TomlBool(Bool),
   TomlDateTime(String, String),
   TomlDate(String),
   TomlTime(String),
@@ -69,10 +222,7 @@ let rec writeTable = (rootTable, keyPath, value) => {
     [ pathItem ] => match (rootTable) {
       TomlTable(tableContents) => {
         // Write Value
-        TomlTable([
-          (pathItem, value),
-          ...tableContents
-        ])
+        TomlTable(List.append(tableContents, [ (pathItem, value) ]))
       },
       _ => fail "Invalid Toml Object"
     },
@@ -88,7 +238,7 @@ let rec writeTable = (rootTable, keyPath, value) => {
               else (keyName, keyValue)
             }, tableContents))
           },
-          false => TomlTable([(pathItem, writeTable(TomlTable([]), rest, value)), ...tableContents])
+          false => TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
         }
       },
       _ => fail "Invalid Toml Object"
@@ -96,9 +246,142 @@ let rec writeTable = (rootTable, keyPath, value) => {
     [] => fail "Empty KeyPath"
   }
 }
-// TODO: Implement isNumber, isFloat
-let isFloat = (str) => false
-let isNumber = (str) => false
+let isFloat = (str) => {
+  // TODO: Validate This
+  let lst = Array.toList(String.explode(String.trim(str)))
+  if (!List.contains('.', lst) && !List.contains('e', lst) && !List.contains('E', lst)) return false
+  // Allow +, -
+  let mut posSign = false
+  let lst = match (lst) {
+    [ '+', ...rest ] => {
+      posSign = true
+      rest
+    },
+    [ '-', ...rest ] => rest,
+    _ => lst
+  }
+  let isSpecial = match (lst) {
+    [ 'n', 'a', 'n' ] => true,
+    [ 'i', 'n', 'f' ] => true,
+    _ => false
+  }
+  if (isSpecial) return true
+  // Validation
+  let mut lastChar = '_'
+  let mut index = 0
+  let lstLen = List.length(lst)
+  let mut chosenStyle = 0
+  let mut resetStyle = false
+  return List.every((char) => {
+    index += 1
+    let charCode = Char.code(char)
+    if (resetStyle && chosenStyle == 2) {
+      if (char == '+' || char == '-') return true
+    }
+    resetStyle = false
+    if (lastChar == '_' && char == '_') return false
+    if (lstLen == index && char == '_') return false
+    if (char == '_') return true
+    lastChar = char
+    // Integers
+    if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
+    // Decimal Or Exponent
+    if (lstLen == index && char == '.') return false
+    if (lstLen == index && char == 'e') return false
+    if (lstLen == index && char == 'E') return false
+    if (chosenStyle == 0) {
+      if (char == '.') {
+        chosenStyle = 1
+        resetStyle = true
+        if (lastChar == '_') return false
+        lastChar = '_'
+        return true
+      }
+      if (char == 'e' || char == 'E') {
+        chosenStyle = 2
+        resetStyle = true
+        if (lastChar == '_') return false
+        lastChar = '_'
+        return true
+      }
+    } else {
+      if (char == '.') return false
+      if (char == 'e') return false
+      if (char == 'E') return false
+    }
+    // Otherwise False
+    return false
+  }, lst)
+}
+let isNumber = (str) => {
+  // TODO: Validate This
+  let lst = Array.toList(String.explode(String.trim(str)))
+  // Allow +, -
+  let mut posSign = false
+  let lst = match (lst) {
+    [ '+', ...rest ] => {
+      posSign = true
+      rest
+    },
+    [ '-', ...rest ] => rest,
+    _ => lst
+  }
+  // Match Type
+  let mut numberRadix = 10
+  let lst = match (lst) {
+    // Hex
+    [ '0', 'x', ...rest ] |
+    [ '0', 'X', ...rest ] => {
+      numberRadix = 16
+      rest
+    },
+    // Octal
+    [ '0', 'o', ...rest ] |
+    [ '0', 'O', ...rest ] => {
+      numberRadix = 8
+      rest
+    },
+    // Binary
+    [ '0', 'b', ...rest ] |
+    [ '0', 'b', ...rest ] => {
+      numberRadix = 2
+      rest
+    },
+    // Rest
+    _ => lst
+  }
+  if (posSign && numberRadix != 10) return false
+  // Validation
+  let mut lastChar = '_'
+  let mut index = 0
+  let lstLen = List.length(lst)
+  return List.every((char) => {
+    index += 1
+    let charCode = Char.code(char)
+    if (lastChar == '_' && char == '_') return false
+    if (lstLen == index && char == '_') return false
+    if (char == '_') return true
+    lastChar = char
+    if (numberRadix == 10) {
+      if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
+    } else if (numberRadix == 16) {
+      if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
+      else if (charCode >= Char.code('A') && charCode <= Char.code('Z')) return true
+      else if (charCode >= Char.code('a') && charCode <= Char.code('z')) return true
+    } else if (numberRadix == 8) {
+      if (charCode >= Char.code('0') && charCode <= Char.code('7')) return true
+    } else if (numberRadix == 2) {
+      if (char == '0' && char == '1') return true
+    }
+    return false
+  }, lst)
+}
+// TODO: Make This Proper
+// TODO: Handle Escaping
+let escapeString = (str) => {
+  let mut str = String.replaceAll("\\\"", "\"", str)
+  str
+}
 // Parsers
 let rec parseValue = (buffer) => {
   match (buffer) {
@@ -107,6 +390,7 @@ let rec parseValue = (buffer) => {
     [ Cbo, ...rest ] => {
       let mut buffer = rest
       // Parse Values
+      let mut hasMatched = false
       let mut canDoAnother = true
       let mut rootTable = TomlTable([])
       while (true) {
@@ -121,6 +405,7 @@ let rec parseValue = (buffer) => {
           },
           // TODO: Handle Keys With Strings
           [ Literal(keyName), Eq, ...rest ] when canDoAnother => {
+            hasMatched = true
             canDoAnother = false
             buffer = rest
             // Validate Key Name
@@ -135,7 +420,7 @@ let rec parseValue = (buffer) => {
           _ => fail "Invalid Toml Object"
         }
       }
-      if (canDoAnother) fail "Invalid Trailing Comma In Table"
+      if (hasMatched && canDoAnother) fail "Invalid Trailing Comma In Table"
       (rootTable, buffer)
     },
     // Inline-Array
@@ -164,7 +449,9 @@ let rec parseValue = (buffer) => {
             values = [ value, ...values]
           },
           // Invalid
-          _ => fail "Invalid Toml Array"
+          _ => {
+            fail "Invalid Toml Array"
+          }
         }
       }
       (TomlArray(List.reverse(values)), buffer)
@@ -172,15 +459,13 @@ let rec parseValue = (buffer) => {
     // Strings
     [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
     [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(literal), rest),
-    // TODO: Handle Escaping
-    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(literal), rest),
-    // TODO: Handle Escaping
+    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal)), rest),
     // TODO: Handle Trimming
     // TODO: Handle Newline Backslash
-    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(literal), rest),
+    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal)), rest),
     // Parse Literals
-    [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBoolean(true), rest),
-    [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBoolean(false), rest),
+    [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
+    [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),
     // TODO: DateTime
     // Float
     [Literal(int),...rest] when isFloat(int) => {
@@ -192,7 +477,7 @@ let rec parseValue = (buffer) => {
     // Number
     [Literal(int),...rest] when isNumber(int) => {
       match (Number.parseInt(int, 10)) {
-        Ok(int) => (TomlInteger(int), rest),
+        Ok(int) => (TomlInt(int), rest),
         Err(_) => fail "Invalid Toml Integer"
       }
     },
@@ -200,12 +485,16 @@ let rec parseValue = (buffer) => {
     _ => fail "Unknown Value"
   }
 }
-let parseFile = (buffer) => {
-  let mut buffer = buffer
+// Public Api
+provide let fromString = (str) => {
+  // Lex
+  let mut buffer = lex(str)
+  // Parse
   let mut keyPath = []
   let mut rootTable = TomlTable([])
   while (List.length(buffer) > 0) {
     // Expressions
+    // TODO: Handle Proper Validation
     match (buffer) {
       // Table
       [ Sbo, Literal(tableName), Sbc, ...rest ] => {
@@ -217,12 +506,16 @@ let parseFile = (buffer) => {
         // Write To Current Table
         rootTable = writeTable(rootTable, keyPath, TomlTable([]))
       },
-      // TODO: Table Array
+      // Table Array
       [ Sbo, Sbo, Literal(tableName), Sbc, Sbc, ...rest ] => {
         buffer = rest
         // Validate Table name
         if (!isValidKeyTable(tableName)) fail "Invalid Table Name"
-        // TODO: Write Table Name
+        // Write Table Name
+        keyPath = parseKey(tableName)
+        // Write Current Table
+        rootTable = writeTable(rootTable, keyPath, TomlArray([]))
+        // TODO: Handle Writing To Arrays
       },
       // Key Value
       [ Literal(keyName), Eq, ...rest ] => {
@@ -248,16 +541,6 @@ let parseFile = (buffer) => {
       _ => fail "Invalid Toml"
     }
   }
-  // Return Table
-  rootTable
-}
-// Public Api
-provide let fromString = (str) => {
-  let lexed = Lexer.lex(str)
-  let parsed = parseFile(lexed)
   // Return Parsed
-  parsed
+  Ok(rootTable)
 }
-// Assert
-print(fromString("[test]\n\ntest2 = [ 'test',\n\n'test' ]"))
-print(fromString("[test]\ntest2 = { test = 'test' }"))

@@ -1,3 +1,224 @@
 module TomlTest
-include "./src/toml"
-// Tests
+include "./toml"
+from Toml use { fromString, type TomlValue }
+// TODO: Invalid
+// Valid
+// Toml Array
+// TODO: array.toml - after Date Support
+assert fromString("
+a = [true, false]
+") == Ok(TomlTable([
+  ("a", TomlArray([
+    TomlBool(true),
+    TomlBool(false)
+  ]))
+]))
+assert fromString("
+thevoid = [[[[[]]]]]
+") == Ok(TomlTable([
+  ("thevoid", TomlArray([
+    TomlArray([TomlArray([TomlArray([TomlArray([])])])])
+  ]))
+]))
+assert fromString("
+mixed = [[1, 2], [\"a\", \"b\"], [1.1, 2.1]]
+") == Ok(TomlTable([
+  ("mixed", TomlArray([
+    TomlArray([
+      TomlInt(1),
+      TomlInt(2)
+    ]),
+    TomlArray([
+      TomlString("a"),
+      TomlString("b")
+    ]),
+    TomlArray([
+      TomlFloat(1.1),
+      TomlFloat(2.1)
+    ])
+  ]))
+]))
+assert fromString("arrays-and-ints =  [1, [\"Arrays are not integers.\"]]") == Ok(TomlTable([
+  ("arrays-and-ints", TomlArray([
+    TomlInt(1),
+    TomlArray([
+      TomlString("Arrays are not integers.")
+    ])
+  ]))
+]))
+assert fromString("ints-and-floats = [1, 1.1]") == Ok(TomlTable([
+  ("ints-and-floats", TomlArray([
+    TomlInt(1),
+    TomlFloat(1.1)
+  ]))
+]))
+assert fromString("strings-and-ints = [\"hi\", 42]") == Ok(TomlTable([
+  ("strings-and-ints", TomlArray([
+    TomlString("hi"),
+    TomlInt(42)
+  ]))
+]))
+assert fromString("
+contributors = [
+  \"Foo Bar <foo@example.com>\",
+  { name = \"Baz Qux\", email = \"bazqux@example.com\", url = \"https://example.com/bazqux\" }
+]
+
+# Start with a table as the first element. This tests a case that some libraries
+# might have where they will check if the first entry is a table/map/hash/assoc
+# array and then encode it as a table array. This was a reasonable thing to do
+# before TOML 1.0 since arrays could only contain one type, but now it's no
+# longer.
+mixed = [{k=\"a\"}, \"b\", 1]
+") ==Ok(TomlTable([
+  ("contributors", TomlArray([
+    TomlString("Foo Bar <foo@example.com>"),
+    TomlTable([
+      ("name", TomlString("Baz Qux")),
+      ("email", TomlString("bazqux@example.com")),
+      ("url", TomlString("https://example.com/bazqux"))
+    ])
+  ])),
+  ("mixed", TomlArray([
+    TomlTable([
+      ("k", TomlString("a"))
+    ]),
+    TomlString("b"),
+    TomlInt(1)
+  ]))
+]))
+assert fromString("
+nest = [
+	[
+		[\"a\"],
+		[1, 2, [3]]
+	]
+]
+") == Ok(TomlTable([
+  ("nest", TomlArray([
+    TomlArray([
+      TomlArray([
+        TomlString("a")
+      ]),
+      TomlArray([
+        TomlInt(1),
+        TomlInt(2),
+        TomlArray([
+          TomlInt(3)
+        ])
+      ])
+    ])
+  ]))
+]))
+assert fromString("
+a = [ { b = {} } ]
+") == Ok(TomlTable([
+  ("a", TomlArray([
+    TomlTable([
+      ("b", TomlTable([]))
+    ])
+  ]))
+]))
+assert fromString("nest = [[\"a\"], [\"b\"]]") == Ok(TomlTable([
+  ("nest", TomlArray([
+    TomlArray([
+      TomlString("a")
+    ]),
+    TomlArray([
+      TomlString("b")
+    ])
+  ]))
+]))
+assert fromString("ints = [1,2,3]") == Ok(TomlTable([
+  ("ints", TomlArray([
+    TomlInt(1),
+    TomlInt(2),
+    TomlInt(3)
+  ]))
+]))
+assert fromString("title = [ \" \\\", \",]") == Ok(TomlTable([
+  ("title", TomlArray([
+    TomlString(" \", ")
+  ]))
+]))
+assert fromString("
+title = [
+\"Client: \\\"XXXX\\\", Job: XXXX\",
+\"Code: XXXX\"
+]
+") == Ok(TomlTable([
+  ("title", TomlArray([
+    TomlString("Client: \"XXXX\", Job: XXXX"),
+    TomlString("Code: XXXX")
+  ]))
+]))
+assert fromString("
+title = [
+\"\"\"Client: XXXX,
+Job: XXXX\"\"\",
+\"Code: XXXX\"
+]
+") == Ok(TomlTable([
+  ("title", TomlArray([
+    TomlString("Client: XXXX,\nJob: XXXX"),
+    TomlString("Code: XXXX")
+  ]))
+]))
+assert fromString("
+title = [
+\"Client: XXXX, Job: XXXX\",
+\"Code: XXXX\"
+]
+") == Ok(TomlTable([
+  ("title", TomlArray([
+    TomlString("Client: XXXX, Job: XXXX"),
+    TomlString("Code: XXXX")
+  ]))
+]))
+assert fromString("
+string_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''']
+") == Ok(TomlTable([
+  ("string_array", TomlArray([
+    TomlString("all"),
+    TomlString("strings"),
+    TomlString("are the same"),
+    TomlString("type")
+  ]))
+]))
+assert fromString("
+foo = [ { bar=\"\\\"{{baz}}\\\"\"} ]
+") == Ok(TomlTable([
+  ("foo", TomlArray([
+    TomlTable([
+      ("bar", TomlString("\"{{baz}}\""))
+    ])
+  ]))
+]))
+// Bool
+assert fromString("
+t = true
+f = false
+") == Ok(TomlTable([
+  ("t", TomlBool(true)),
+  ("f", TomlBool(false))
+]))
+// Comment
+assert fromString("
+# This is a full-line comment
+key = \"value\" # This is a comment at the end of a line
+") == Ok(TomlTable([
+  ("key", TomlString("value"))
+]))
+// TODO: Comment.everywhere - Support Dates
+assert fromString("# single comment without any eol characters") == Ok(TomlTable([]))
+assert fromString("# ~  ÿ ퟿  ￿ 𐀀 􏿿") == Ok(TomlTable([]))
+// TODO: Comment.tricky
+// TODO: DateTime
+// TODO: Float
+// TODO: inline-table
+// TODO: integer
+// TODO: key
+// TODO: spec
+// TODO: string
+// TODO: table
+// TODO: Random
