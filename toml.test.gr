@@ -23,6 +23,7 @@ THE SOFTWARE.
 */
 // Tests are mostly taken from https://github.com/BurntSushi/toml-test
 module TomlTest
+include "Number"
 include "./toml"
 from Toml use { fromString, type TomlValue }
 // TODO: Invalid
@@ -238,11 +239,397 @@ assert fromString("# single comment without any eol characters") == Ok(TomlTable
 assert fromString("# ~  ÿ ퟿  ￿ 𐀀 􏿿") == Ok(TomlTable([]))
 // TODO: Comment.tricky
 // TODO: DateTime
-// TODO: Float
-// TODO: inline-table
-// TODO: integer
+// Float
+assert fromString("
+lower = 3e2
+upper = 3E2
+neg = 3e-2
+pos = 3E+2
+zero = 3e0
+pointlower = 3.1e2
+pointupper = 3.1E2
+minustenth = -1E-1
+") == Ok(TomlTable([
+  ("lower", TomlFloat(300.0)),
+  ("upper", TomlFloat(300.0)),
+  ("neg", TomlFloat(0.03)),
+  ("pos", TomlFloat(300.0)),
+  ("zero", TomlFloat(3.0)),
+  ("pointlower", TomlFloat(310.0)),
+  ("pointupper", TomlFloat(310.0)),
+  ("minustenth", TomlFloat(-0.1))
+]))
+assert fromString("
+pi = 3.14
+pospi = +3.14
+negpi = -3.14
+zero-intpart = 0.123
+") == Ok(TomlTable([
+  ("pi", TomlFloat(3.14)),
+  ("pospi", TomlFloat(3.14)),
+  ("negpi", TomlFloat(-3.14)),
+  ("zero-intpart", TomlFloat(0.123))
+]))
+assert match (fromString("nan = nan")) {
+  Ok(TomlTable([
+    ("nan", TomlFloat(n))
+  ])) when Number.isNaN(n) => true,
+  _ => false
+}
+assert match (fromString("nan_neg = -nan")) {
+  Ok(TomlTable([
+    ("nan_neg", TomlFloat(n))
+  ])) when Number.isNaN(n) => true,
+  _ => false
+}
+assert match (fromString("pos_nan = +nan")) {
+  Ok(TomlTable([
+    ("pos_nan", TomlFloat(n))
+  ])) when Number.isNaN(n) => true,
+  _ => false
+}
+assert fromString("
+infinity = inf
+infinity_neg = -inf
+infinity_plus = +inf
+") == Ok(TomlTable([
+  ("infinity", TomlFloat(Infinity)),
+  ("infinity_neg", TomlFloat(-Infinity)),
+  ("infinity_plus", TomlFloat(Infinity))
+]))
+assert fromString("
+longpi = 3.141592653589793
+neglongpi = -3.141592653589793
+") == Ok(TomlTable([
+  ("longpi", TomlFloat(3.141592653589793)),
+  ("neglongpi", TomlFloat(-3.141592653589793))
+]))
+assert fromString("
+before = 3_141.5927
+after = 3141.592_7
+exponent = 3e1_4
+") == Ok(TomlTable([
+  ("before", TomlFloat(3_141.5927)),
+  ("after", TomlFloat(3141.592_7)),
+  ("exponent", TomlFloat(3e1_4))
+]))
+assert fromString("
+zero = 0.0
+signed-pos = +0.0
+signed-neg = -0.0
+exponent = 0e0
+exponent-two-0 = 0e00
+exponent-signed-pos = +0e0
+exponent-signed-neg = -0e0
+
+") == Ok(TomlTable([
+  ("zero", TomlFloat(0.0)),
+  ("signed-pos", TomlFloat(0.0)),
+  ("signed-neg", TomlFloat(-0.0)),
+  ("exponent", TomlFloat(0e0)),
+  ("exponent-two-0", TomlFloat(0e00)),
+  ("exponent-signed-pos", TomlFloat(0e0)),
+  ("exponent-signed-neg", TomlFloat(-0e0))
+]))
+// inline-table
+assert fromString("
+people = [{first_name = \"Bruce\", last_name = \"Springsteen\"},
+          {first_name = \"Eric\", last_name = \"Clapton\"},
+          {first_name = \"Bob\", last_name = \"Seger\"}]
+") == Ok(TomlTable([
+  ("people", TomlArray([
+    TomlTable([
+      ("first_name", TomlString("Bruce")),
+      ("last_name", TomlString("Springsteen"))
+    ]),
+    TomlTable([
+      ("first_name", TomlString("Eric")),
+      ("last_name", TomlString("Clapton"))
+    ]),
+    TomlTable([
+      ("first_name", TomlString("Bob")),
+      ("last_name", TomlString("Seger"))
+    ])
+  ]))
+]))
+assert fromString("
+a = {a = true, b = false}
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("a", TomlBool(true)),
+    ("b", TomlBool(false))
+  ]))
+]))
+// TODO: Inline-Table.empty - Support Proper Keys
+assert fromString("
+black = { python=\">3.6\", version=\">=18.9b0\", allow_prereleases=true }
+") == Ok(TomlTable([
+  ("black", TomlTable([
+    ("python", TomlString(">3.6")),
+    ("version", TomlString(">=18.9b0")),
+    ("allow_prereleases", TomlBool(true))
+  ]))
+]))
+// TODO: Inline-Table.inline-table - Support Proper Keys
+// TODO: Inline-Table.key-dotted - Support Proper Keys
+assert fromString("
+tbl_multiline = { a = 1, b = \"\"\"
+multiline
+\"\"\", c = \"\"\"and yet
+another line\"\"\", d = 4 }
+") == Ok(TomlTable([
+  ("tbl_multiline", TomlTable([
+    ("a", TomlInt(1)),
+    ("b", TomlString("multiline\n")),
+    ("c", TomlString("and yet\nanother line")),
+    ("d", TomlInt(4))
+  ]))
+]))
+assert fromString("
+tbl_tbl_empty = { tbl_0 = {} }
+tbl_tbl_val   = { tbl_1 = { one = 1 } }
+tbl_arr_tbl   = { arr_tbl = [ { one = 1 } ] }
+arr_tbl_tbl   = [ { tbl = { one = 1 } } ]
+
+# Array-of-array-of-table is interesting because it can only
+# be represented in inline form.
+arr_arr_tbl_empty = [ [ {} ] ]
+arr_arr_tbl_val = [ [ { one = 1 } ] ]
+arr_arr_tbls  = [ [ { one = 1 }, { two = 2 } ] ]
+") == Ok(TomlTable([
+  ("tbl_tbl_empty", TomlTable([
+    ("tbl_0", TomlTable([]))
+  ])),
+  ("tbl_tbl_val", TomlTable([
+    ("tbl_1", TomlTable([
+      ("one", TomlInt(1))
+    ]))
+  ])),
+  ("tbl_arr_tbl", TomlTable([
+    ("arr_tbl", TomlArray([
+      TomlTable([
+        ("one", TomlInt(1))
+      ])
+    ]))
+  ])),
+  ("arr_tbl_tbl", TomlArray([
+    TomlTable([
+      ("tbl", TomlTable([
+        ("one", TomlInt(1))
+      ]))
+    ])
+  ])),
+  ("arr_arr_tbl_empty", TomlArray([
+    TomlArray([
+      TomlTable([])
+    ])
+  ])),
+  ("arr_arr_tbl_val", TomlArray([
+    TomlArray([
+      TomlTable([
+        ("one", TomlInt(1))
+      ])
+    ])
+  ])),
+  ("arr_arr_tbls", TomlArray([
+    TomlArray([
+      TomlTable([
+        ("one", TomlInt(1))
+      ]),
+      TomlTable([
+        ("two", TomlInt(2))
+      ])
+    ])
+  ]))
+]))
+assert fromString("
+# TOML 1.1 supports newlines in inline tables and trailing commas.
+
+trailing-comma-1 = {
+	c = 1,
+}
+trailing-comma-2 = { c = 1, }
+
+tbl-1 = {
+	hello = \"world\",
+	1     = 2,
+	arr   = [1,
+	         2,
+	         3,
+	        ],
+	tbl = {
+		 k = 1,
+	}
+}
+
+tbl-2 = {
+	k = \"\"\"
+	Hello
+	\"\"\"
+}
+") == Ok(TomlTable([
+  ("trailing-comma-1", TomlTable([
+    ("c", TomlInt(1))
+  ])),
+  ("trailing-comma-2", TomlTable([
+    ("c", TomlInt(1))
+  ])),
+  ("tbl-1", TomlTable([
+    ("hello", TomlString("world")),
+    ("1", TomlInt(2)),
+    ("arr", TomlArray([
+      TomlInt(1),
+      TomlInt(2),
+      TomlInt(3)
+    ])),
+    ("tbl", TomlTable([
+      ("k", TomlInt(1))
+    ]))
+  ])),
+  ("tbl-2", TomlTable([
+    ("k", TomlString("\tHello\n\t")),
+  ]))
+]))
+// integer
+assert fromString("
+answer = 42
+posanswer = +42
+neganswer = -42
+zero = 0
+") == Ok(TomlTable([
+  ("answer", TomlInt(42)),
+  ("posanswer", TomlInt(42)),
+  ("neganswer", TomlInt(-42)),
+  ("zero", TomlInt(0))
+]))
+assert fromString("
+bin1 = 0b11010110
+bin2 = 0b1_0_1
+
+oct1 = 0o01234567
+oct2 = 0o755
+oct3 = 0o7_6_5
+
+hex1 = 0xDEADBEEF
+hex2 = 0xdeadbeef
+hex3 = 0xdead_beef
+hex4 = 0x00987
+") == Ok(TomlTable([
+  ("bin1", TomlInt(0b11010110)),
+  ("bin2", TomlInt(0b1_0_1)),
+  ("oct1", TomlInt(0o01234567)),
+  ("oct2", TomlInt(0o755)),
+  ("oct3", TomlInt(0o7_6_5)),
+  ("hex1", TomlInt(0xDEADBEEF)),
+  ("hex2", TomlInt(0xdeadbeef)),
+  ("hex3", TomlInt(0xdead_beef)),
+  ("hex4", TomlInt(0x00987))
+]))
+assert fromString("
+int64-max = 9223372036854775807
+int64-max-neg = -9223372036854775808
+") == Ok(TomlTable([
+  ("int64-max", TomlInt(9223372036854775807)),
+  ("int64-max-neg", TomlInt(-9223372036854775808))
+]))
+assert fromString("
+kilo = 1_000
+x = 1_1_1_1
+") == Ok(TomlTable([
+  ("kilo", TomlInt(1_000)),
+  ("x", TomlInt(1_1_1_1))
+]))
+assert fromString("
+d1 = 0
+d2 = +0
+d3 = -0
+
+h1 = 0x0
+h2 = 0x00
+h3 = 0x00000
+
+o1 = 0o0
+a2 = 0o00
+a3 = 0o00000
+
+b1 = 0b0
+b2 = 0b00
+b3 = 0b00000
+") == Ok(TomlTable([
+  ("d1", TomlInt(0)),
+  ("d2", TomlInt(0)),
+  ("d3", TomlInt(0)),
+  ("h1", TomlInt(0)),
+  ("h2", TomlInt(0)),
+  ("h3", TomlInt(0)),
+  ("o1", TomlInt(0)),
+  ("a2", TomlInt(0)),
+  ("a3", TomlInt(0)),
+  ("b1", TomlInt(0)),
+  ("b2", TomlInt(0)),
+  ("b3", TomlInt(0))
+]))
 // TODO: key
 // TODO: spec
 // TODO: string
 // TODO: table
 // TODO: Random
+assert fromString("") == Ok(TomlTable([]))
+// TODO: Random.example - Support Dates
+assert fromString("
+[a.b.c]
+answer = 42
+
+[a]
+better = 43
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ])),
+    ("better", TomlInt(43))
+  ]))
+]))
+assert fromString("
+[a]
+better = 43
+
+[a.b.c]
+answer = 42
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("better", TomlInt(43)),
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ]))
+  ]))
+]))
+assert fromString("
+[a.b.c]
+answer = 42
+") == Ok(TomlTable([
+  ("a", TomlTable([
+    ("b", TomlTable([
+      ("c", TomlTable([
+        ("answer", TomlInt(42))
+      ]))
+    ]))
+  ]))
+]))
+assert fromString("os = \"DOS\"\r\nnewline = \"crlf\"\r\n") == Ok(TomlTable([
+  ("os", TomlString("DOS")),
+  ("newline", TomlString("crlf"))
+]))
+assert fromString("
+os = \"unix\"
+newline = \"lf\"
+") == Ok(TomlTable([
+  ("os", TomlString("unix")),
+  ("newline", TomlString("lf"))
+]))
+// TODO: Random.spec-example-1-compact - Support Dates
+// TODO: Random.spec-example-1 - Support Dates

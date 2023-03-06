@@ -174,6 +174,7 @@ provide enum TomlValue {
   TomlArray(List<TomlValue>),
 }
 let isValidKeyTable = (name) => {
+  // TODO: Improve This
   Array.every((char) => {
     let charCode = Char.code(char)
     if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
@@ -181,6 +182,8 @@ let isValidKeyTable = (name) => {
     } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
       true
     } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
+      true
+    } else if (char == '.') {
       true
     } else if (char == '-' || char == '_') {
       true
@@ -217,14 +220,15 @@ let parseKey = (key) => {
   List.reverse(keyPath)
 }
 let rec writeTable = (rootTable, keyPath, value) => {
+  // TODO: Rewrite This Completely
   // TODO: Validate This
   match (keyPath) {
     [ pathItem ] => match (rootTable) {
       TomlTable(tableContents) => {
-        // Write Value
+        // Search Table
         TomlTable(List.append(tableContents, [ (pathItem, value) ]))
       },
-      _ => fail "Invalid Toml Object"
+      _ => fail "Invalid Toml Array Write"
     },
     [ pathItem, ...rest ] => match (rootTable) {
       TomlTable(tableContents) => {
@@ -232,16 +236,20 @@ let rec writeTable = (rootTable, keyPath, value) => {
         let hasSubTable = List.some(((keyName, _)) => keyName == pathItem, tableContents)
         match (hasSubTable) {
           true => {
+            let mut hasWritten = false
             TomlTable(List.map(((keyName, keyValue)) => {
-              if (keyName == pathItem)
+              if (keyName == pathItem && !hasWritten) {
+                hasWritten = true
                 (keyName, writeTable(keyValue, rest, value))
-              else (keyName, keyValue)
+              } else (keyName, keyValue)
             }, tableContents))
           },
-          false => TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
+          false => {
+            TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
+          }
         }
       },
-      _ => fail "Invalid Toml Object"
+      _ => fail "Invalid Toml Array Write"
     },
     [] => fail "Empty KeyPath"
   }
@@ -249,7 +257,6 @@ let rec writeTable = (rootTable, keyPath, value) => {
 let isFloat = (str) => {
   // TODO: Validate This
   let lst = Array.toList(String.explode(String.trim(str)))
-  if (!List.contains('.', lst) && !List.contains('e', lst) && !List.contains('E', lst)) return false
   // Allow +, -
   let mut posSign = false
   let lst = match (lst) {
@@ -267,6 +274,7 @@ let isFloat = (str) => {
   }
   if (isSpecial) return true
   // Validation
+  if (!List.contains('.', lst) && !List.contains('e', lst) && !List.contains('E', lst)) return false
   let mut lastChar = '_'
   let mut index = 0
   let lstLen = List.length(lst)
@@ -297,6 +305,10 @@ let isFloat = (str) => {
         lastChar = '_'
         return true
       }
+    } else {
+      if (char == '.') return false
+    }
+    if (chosenStyle == 0 || chosenStyle == 1) {
       if (char == 'e' || char == 'E') {
         chosenStyle = 2
         resetStyle = true
@@ -305,7 +317,6 @@ let isFloat = (str) => {
         return true
       }
     } else {
-      if (char == '.') return false
       if (char == 'e') return false
       if (char == 'E') return false
     }
@@ -343,7 +354,7 @@ let isNumber = (str) => {
     },
     // Binary
     [ '0', 'b', ...rest ] |
-    [ '0', 'b', ...rest ] => {
+    [ '0', 'B', ...rest ] => {
       numberRadix = 2
       rest
     },
@@ -371,14 +382,23 @@ let isNumber = (str) => {
     } else if (numberRadix == 8) {
       if (charCode >= Char.code('0') && charCode <= Char.code('7')) return true
     } else if (numberRadix == 2) {
-      if (char == '0' && char == '1') return true
+      if (char == '0' || char == '1') return true
     }
     return false
   }, lst)
 }
 // TODO: Make This Proper
 // TODO: Handle Escaping
-let escapeString = (str) => {
+let escapeString = (str, trimString) => {
+  let mut str = str
+  if (trimString) {
+    match (Array.toList(String.explode(str))) {
+      [ '\n', ...rest ] => {
+        str = String.implode(Array.fromList(rest))
+      },
+      _ => void
+    }
+  }
   let mut str = String.replaceAll("\\\"", "\"", str)
   str
 }
@@ -390,11 +410,13 @@ let rec parseValue = (buffer) => {
     [ Cbo, ...rest ] => {
       let mut buffer = rest
       // Parse Values
-      let mut hasMatched = false
       let mut canDoAnother = true
       let mut rootTable = TomlTable([])
       while (true) {
         match (buffer) {
+          [ LineBreak, ...rest ] => {
+            buffer = rest
+          },
           [ Comma, ...rest ] => {
             buffer = rest
             canDoAnother = true
@@ -405,7 +427,6 @@ let rec parseValue = (buffer) => {
           },
           // TODO: Handle Keys With Strings
           [ Literal(keyName), Eq, ...rest ] when canDoAnother => {
-            hasMatched = true
             canDoAnother = false
             buffer = rest
             // Validate Key Name
@@ -420,7 +441,6 @@ let rec parseValue = (buffer) => {
           _ => fail "Invalid Toml Object"
         }
       }
-      if (hasMatched && canDoAnother) fail "Invalid Trailing Comma In Table"
       (rootTable, buffer)
     },
     // Inline-Array
@@ -459,10 +479,10 @@ let rec parseValue = (buffer) => {
     // Strings
     [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
     [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(literal), rest),
-    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal)), rest),
+    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(escapeString(literal, false)), rest),
     // TODO: Handle Trimming
     // TODO: Handle Newline Backslash
-    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal)), rest),
+    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(escapeString(literal, true)), rest),
     // Parse Literals
     [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
     [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),
@@ -476,6 +496,11 @@ let rec parseValue = (buffer) => {
     },
     // Number
     [Literal(int),...rest] when isNumber(int) => {
+      let mut int = int
+      match (Array.toList(String.explode(int))) {
+        [ '+', ...rest ] => int = String.implode(Array.fromList(rest)),
+        _ => void
+      }
       match (Number.parseInt(int, 10)) {
         Ok(int) => (TomlInt(int), rest),
         Err(_) => fail "Invalid Toml Integer"
@@ -544,3 +569,11 @@ provide let fromString = (str) => {
   // Return Parsed
   Ok(rootTable)
 }
+
+print(fromString("
+[a.b]
+answer = 42
+
+[a]
+better = 43
+"))
