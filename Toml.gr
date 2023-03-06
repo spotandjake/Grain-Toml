@@ -9,11 +9,13 @@ include "bytes"
 // Type
 enum LexerToken {
   // Fully Matched
-  BasicString(String),
-  BasicMultiLineString(String),
-  LiteralString(String),
-  LiteralMultiLineString(String),
-  // Semi Matched
+  LexedBasicString(String),
+  LexedBasicMultiLineString(String),
+  LexedLiteralString(String),
+  LexedLiteralMultiLineString(String),
+  // TODO: Add Boolean
+  // Unmatched
+  // TODO: Consider Changing This To Literal(List<String>)
   Literal(String),
   Eq,
   Sbo,
@@ -110,8 +112,8 @@ let lex = (inputStr) => {
         }
         if (quoteCount == 2) {
           match (quoteType) {
-            SingleQuote => lexemes = [ LiteralString(""), ...lexemes ],
-            DoubleQuote => lexemes = [ BasicString(""), ...lexemes ],
+            SingleQuote => lexemes = [ LexedLiteralString(""), ...lexemes ],
+            DoubleQuote => lexemes = [ LexedBasicString(""), ...lexemes ],
             _ => fail "Invalid Toml Quote Type"
           }
         } else {
@@ -141,10 +143,10 @@ let lex = (inputStr) => {
           let str = Bytes.toString(str)
           // Build Lexemes
           match (quoteType) {
-            SingleQuote when isMultiLine => lexemes = [ LiteralMultiLineString(str), ...lexemes ],
-            DoubleQuote when isMultiLine => lexemes = [ BasicMultiLineString(str), ...lexemes ],
-            SingleQuote => lexemes = [ LiteralString(str), ...lexemes ],
-            DoubleQuote => lexemes = [ BasicString(str), ...lexemes ],
+            SingleQuote when isMultiLine => lexemes = [ LexedLiteralMultiLineString(str), ...lexemes ],
+            DoubleQuote when isMultiLine => lexemes = [ LexedBasicMultiLineString(str), ...lexemes ],
+            SingleQuote => lexemes = [ LexedLiteralString(str), ...lexemes ],
+            DoubleQuote => lexemes = [ LexedBasicString(str), ...lexemes ],
             _ => fail "Invalid Toml Quote Type"
           }
         }
@@ -189,110 +191,6 @@ provide enum TomlValue {
   TomlTime(String),
   TomlTable(List<(String, TomlValue)>),
   TomlArray(List<TomlValue>),
-}
-// Rewrite This Completely
-let isValidKeyTable = (name) => {
-  // TODO: Improve This
-  Array.every((char) => {
-    let charCode = Char.code(char)
-    if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
-      true
-    } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
-      true
-    } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
-      true
-    } else if (char == '.') {
-      true
-    } else if (char == '-' || char == '_') {
-      true
-    } else {
-      false
-    }
-  }, String.explode(String.trim(name)))
-}
-let parseKey = (key) => {
-  // TODO: Handle Validation
-  let key = Array.toList(String.explode(String.trim(key)))
-  let mut closeString = ' '
-  let mut keyPath = []
-  let mut currentKey = ""
-  List.forEach((char) => {
-    // Handle String
-    if (char == '\'' && closeString != '"') {
-      if (closeString == '\'') closeString = ' '
-      else if (closeString == ' ') closeString = '\''
-      return
-    } else if (char == '"' && closeString != '\'') {
-      if (closeString == '"') closeString = ' '
-      else if (closeString == ' ') closeString = '"'
-      return
-    }
-    // Handle Writing Key
-    if (char == '.' && closeString == ' ') {
-      keyPath = [ currentKey, ...keyPath ]
-      currentKey = ""
-    } else currentKey = currentKey ++ Char.toString(char)
-    return
-  }, key)
-  keyPath = [ currentKey, ...keyPath ]
-  List.reverse(keyPath)
-}
-let rec writeTable = (rootTable, keyPath, value) => {
-  // TODO: Rewrite This Completely
-  // TODO: Validate This
-  match (keyPath) {
-    [ pathItem ] => match (rootTable) {
-      TomlTable(tableContents) => {
-        let hasKeyPath = List.some(((keyName, _)) => keyName == pathItem, tableContents)
-        // If Value Is A Table Or Array Merge
-        if (hasKeyPath) {
-          let mut hasFoundItem = false
-          TomlTable((List.map(((keyName, keyValue)) => {
-            if (!hasFoundItem && keyName == pathItem) {
-              hasFoundItem = true
-              match (keyValue) {
-                TomlTable(contents) => {
-                  match (value) {
-                    TomlTable(newContents) => {
-                      (keyName, TomlTable(List.append(contents, newContents)))
-                    },
-                    _ => fail "Invalid Toml Table Write"
-                  }
-                },
-                _ => fail "Invalid Toml Table Write"
-              }
-            } else (keyName, keyValue)
-          }, tableContents)))
-        } else {
-          // Search Table
-          TomlTable(List.append(tableContents, [ (pathItem, value) ]))
-        }
-      },
-      _ => fail "Invalid Toml Array Write"
-    },
-    [ pathItem, ...rest ] => match (rootTable) {
-      TomlTable(tableContents) => {
-        // Search Table
-        let hasSubTable = List.some(((keyName, _)) => keyName == pathItem, tableContents)
-        match (hasSubTable) {
-          true => {
-            let mut hasWritten = false
-            TomlTable(List.map(((keyName, keyValue)) => {
-              if (keyName == pathItem && !hasWritten) {
-                hasWritten = true
-                (keyName, writeTable(keyValue, rest, value))
-              } else (keyName, keyValue)
-            }, tableContents))
-          },
-          false => {
-            TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
-          }
-        }
-      },
-      _ => fail "Invalid Toml Array Write"
-    },
-    [] => fail "Empty KeyPath"
-  }
 }
 let isFloat = (str) => {
   // TODO: Validate This
@@ -427,6 +325,7 @@ let isNumber = (str) => {
     return false
   }, lst)
 }
+// TODO: Rewrite This To Be Simple
 let escapeString = (str, isBasic, isMultiLine) => {
   // Normalize Line Ending
   let mut normalStr = ""
@@ -585,6 +484,201 @@ let escapeString = (str, isBasic, isMultiLine) => {
   // return escaped string
   escapedStr
 }
+// Handle Keys
+// TODO: Rewrite All This Completely
+let isValidKeyChar = (keyChar) => {
+  let charCode = Char.code(keyChar)
+  // Digits
+  if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
+  // Alphabetical
+  if (charCode >= Char.code('a') && charCode <= Char.code('z')) return true
+  if (charCode >= Char.code('A') && charCode <= Char.code('Z')) return true
+  // Symbols
+  if (keyChar == '-' || keyChar == '_') return true
+  // TODO: Determine what other characters are valid
+  // Invalid
+  return false
+}
+let keyStructureToRoot = (rawKeyLexemes) => {
+  if (List.length(rawKeyLexemes) == 0) fail "Invalid Toml Key"
+  // Break Apart By Dot
+  let mut rawKeyLexemes = rawKeyLexemes
+  let mut keyLexemes  = []
+  while (true) {
+    match (rawKeyLexemes) {
+      [ Literal(str), ...rest ]=> {
+        rawKeyLexemes = rest
+        // Split by Dots
+        let mut keyBuf = ""
+        let mut str = Array.toList(String.explode(str))
+        while (true) {
+          match (str) {
+            [ '.', ...rest ]=> {
+              str = rest
+              keyLexemes = [ Literal("."), Literal(keyBuf), ...keyLexemes ]
+            },
+            [ item, ...rest ] => {
+              str = rest
+              keyBuf = keyBuf ++ Char.toString(item)
+            },
+            [] => break
+          }
+        }
+        keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
+      },
+      [item, ...rest] => {
+        rawKeyLexemes = rest
+        keyLexemes = [ item, ...rest ]
+      },
+      [] => break
+    }
+  }
+  let mut keyLexemes = List.reverse(keyLexemes)
+  // Build Key Path
+  let mut keyPath = []
+  let mut keyBuffer = ""
+  // Create KeyPath
+  let mut lastItemDot = true
+  List.forEach((rawKeyLexeme) => {
+    // Validate
+    let mut matchedDot = false
+    match (rawKeyLexeme) {
+      LexedBasicString(txt) => {
+        if (!lastItemDot) fail "Invalid Toml Key"
+        keyBuffer = keyBuffer ++ escapeString(txt, true, false)
+      },
+      LexedLiteralString(txt) => {
+        if (!lastItemDot) fail "Invalid Toml Key"
+        keyBuffer = keyBuffer ++ escapeString(txt, false, false)
+      },
+      Literal(".") => {
+        if (lastItemDot) fail "Invalid Toml Key"
+        matchedDot = true
+        keyPath = [ keyBuffer, ...keyPath]
+        keyBuffer = ""
+      },
+      Literal(txt) => {
+        // Validate
+        Array.forEach((char) => {
+          if (!isValidKeyChar(char)) fail "Invalid Toml Key"
+        }, String.explode(txt))
+        // Add To Buffer
+        keyBuffer = keyBuffer ++ txt
+      },
+      // Invalid
+      _ => fail "Invalid Toml Key",
+    }
+    lastItemDot = matchedDot
+  }, keyLexemes)
+  // Append The Last Key Buffer
+  if (String.length(keyBuffer) > 0)
+    keyPath = [ keyBuffer, ...keyPath]
+  // Return The KeyPath
+  keyPath
+}
+let isValidKeyTable = (name) => {
+  // TODO: Improve This
+  Array.every((char) => {
+    let charCode = Char.code(char)
+    if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
+      true
+    } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
+      true
+    } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
+      true
+    } else if (char == '.') {
+      true
+    } else if (char == '-' || char == '_') {
+      true
+    } else {
+      false
+    }
+  }, String.explode(String.trim(name)))
+}
+let parseKey = (key) => {
+  // TODO: Handle Validation
+  let key = Array.toList(String.explode(String.trim(key)))
+  let mut closeString = ' '
+  let mut keyPath = []
+  let mut currentKey = ""
+  List.forEach((char) => {
+    // Handle String
+    if (char == '\'' && closeString != '"') {
+      if (closeString == '\'') closeString = ' '
+      else if (closeString == ' ') closeString = '\''
+      return
+    } else if (char == '"' && closeString != '\'') {
+      if (closeString == '"') closeString = ' '
+      else if (closeString == ' ') closeString = '"'
+      return
+    }
+    // Handle Writing Key
+    if (char == '.' && closeString == ' ') {
+      keyPath = [ currentKey, ...keyPath ]
+      currentKey = ""
+    } else currentKey = currentKey ++ Char.toString(char)
+    return
+  }, key)
+  keyPath = [ currentKey, ...keyPath ]
+  List.reverse(keyPath)
+}
+let rec writeTable = (rootTable, keyPath, value) => {
+  // TODO: Rewrite This Completely
+  // TODO: Validate This
+  match (keyPath) {
+    [ pathItem ] => match (rootTable) {
+      TomlTable(tableContents) => {
+        let hasKeyPath = List.some(((keyName, _)) => keyName == pathItem, tableContents)
+        // If Value Is A Table Or Array Merge
+        if (hasKeyPath) {
+          let mut hasFoundItem = false
+          TomlTable((List.map(((keyName, keyValue)) => {
+            if (!hasFoundItem && keyName == pathItem) {
+              hasFoundItem = true
+              match (keyValue) {
+                TomlTable(contents) => {
+                  match (value) {
+                    TomlTable(newContents) => {
+                      (keyName, TomlTable(List.append(contents, newContents)))
+                    },
+                    _ => fail "Invalid Toml Table Write"
+                  }
+                },
+                _ => fail "Invalid Toml Table Write"
+              }
+            } else (keyName, keyValue)
+          }, tableContents)))
+        } else {
+          // Search Table
+          TomlTable(List.append(tableContents, [ (pathItem, value) ]))
+        }
+      },
+      _ => fail "Invalid Toml Array Write"
+    },
+    [ pathItem, ...rest ] => match (rootTable) {
+      TomlTable(tableContents) => {
+        // Search Table
+        let hasSubTable = List.some(((keyName, _)) => keyName == pathItem, tableContents)
+        match (hasSubTable) {
+          true => {
+            let mut hasWritten = false
+            TomlTable(List.map(((keyName, keyValue)) => {
+              if (keyName == pathItem && !hasWritten) {
+                hasWritten = true
+                (keyName, writeTable(keyValue, rest, value))
+              } else (keyName, keyValue)
+            }, tableContents))
+          },
+          false => {
+            TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
+          }
+        }
+      },
+      _ => fail "Invalid Toml Array Write"
+    },
+    [] => fail "Empty KeyPath"
+  }
+}
 // Parsers
 let rec parseValue = (buffer) => {
   match (buffer) {
@@ -609,19 +703,31 @@ let rec parseValue = (buffer) => {
             break
           },
           // TODO: Handle Keys With Strings
-          [ Literal(keyName), Eq, ...rest ] when canDoAnother => {
+          _ => {
             canDoAnother = false
-            buffer = rest
-            // Validate Key Name
-            if (!isValidKeyTable(keyName)) fail "Invalid Key Name"
-            // Parse The Value
-            let (value, rest) = parseValue(rest)
+            // Parse Key
+            let mut keyTokens = []
+            while (true) {
+              match (buffer) {
+                [ Eq, ...rest ] => {
+                  buffer = rest
+                  break
+                },
+                [item, ...rest] => {
+                  buffer = rest
+                  keyTokens = [item, ...keyTokens]
+                },
+                [] => fail "Invalid Toml Inline Table"
+              }
+            }
+            // Parse Key
+            let valueKey = keyStructureToRoot(List.reverse(keyTokens))
+            // Parse Value
+            let (value, rest) = parseValue(buffer)
             buffer = rest
             // Write To Current Table
-            rootTable = writeTable(rootTable, parseKey(keyName), value)
-          },
-          // Invalid
-          _ => fail "Invalid Toml Object"
+            rootTable = writeTable(rootTable, valueKey, value)
+          }
         }
       }
       (rootTable, buffer)
@@ -652,16 +758,19 @@ let rec parseValue = (buffer) => {
             values = [ value, ...values]
           },
           // Invalid
-          _ => fail "Invalid Toml Array"
+          _ => {
+            print(buffer)
+            fail "Invalid Toml Array"
+          }
         }
       }
       (TomlArray(List.reverse(values)), buffer)
     },
     // Strings
-    [ LiteralString(literal), ...rest ] => (TomlString(literal), rest),
-    [ LiteralMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
-    [ BasicString(literal), ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
-    [ BasicMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
+    [ LexedLiteralString(literal), ...rest ] => (TomlString(literal), rest),
+    [ LexedLiteralMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, false, true)), rest),
+    [ LexedBasicString(literal), ...rest ] => (TomlString(escapeString(literal, true, false)), rest),
+    [ LexedBasicMultiLineString(literal), ...rest ] => (TomlString(escapeString(literal, true, true)), rest),
     // Parse Literals
     [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBool(true), rest),
     [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBool(false), rest),
@@ -729,20 +838,30 @@ provide let fromString = (str) => {
       },
       [ LineBreak, ...rest ] => buffer = rest,
       // Key Value
-      [ Literal(keyName), Eq, ...rest ] => {
-        buffer = rest
-        // Validate Key Name
-        if (!isValidKeyTable(keyName)) fail "Invalid Key Name"
+      _ => {
         // Parse Key
-        let key = List.append(keyPath, parseKey(keyName))
-        // Parse The Value
-        let (value, rest) = parseValue(rest)
+        let mut keyTokens = []
+        while (true) {
+          match (buffer) {
+            [ Eq, ...rest ] => {
+              buffer = rest
+              break
+            },
+            [item, ...rest] => {
+              buffer = rest
+              keyTokens = [item, ...keyTokens]
+            },
+            [] => fail "Invalid Toml"
+          }
+        }
+        // Parse Key
+        let valueKey = keyStructureToRoot(List.reverse(keyTokens))
+        // Parse Value
+        let (value, rest) = parseValue(buffer)
         buffer = rest
         // Write To Current Table
-        rootTable = writeTable(rootTable, key, value)
-      },
-      // Invalid
-      _ => fail "Invalid Toml"
+        rootTable = writeTable(rootTable, List.append(keyPath, valueKey), value)
+      }
     }
   }
   // Return Parsed

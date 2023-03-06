@@ -360,7 +360,37 @@ a = {a = true, b = false}
     ("b", TomlBool(false))
   ]))
 ]))
-// TODO: Inline-Table.empty - Support Proper Keys
+assert fromString("
+empty1 = {}
+empty2 = { }
+empty_in_array = [ { not_empty = 1 }, {} ]
+empty_in_array2 = [{},{not_empty=1}]
+many_empty = [{},{},{}]
+nested_empty = {\"empty\"={}}
+") == Ok(TomlTable([
+  ("empty1", TomlTable([])),
+  ("empty2", TomlTable([])),
+  ("empty_in_array", TomlArray([
+    TomlTable([
+      ("not_empty", TomlInt(1))
+    ]),
+    TomlTable([]),
+  ])),
+  ("empty_in_array2", TomlArray([
+    TomlTable([]),
+    TomlTable([
+      ("not_empty", TomlInt(1))
+    ])
+  ])),
+  ("many_empty", TomlArray([
+    TomlTable([]),
+    TomlTable([]),
+    TomlTable([]),
+  ])),
+  ("nested_empty", TomlTable([
+    ("empty", TomlTable([]))
+  ]))
+]))
 assert fromString("
 black = { python=\">3.6\", version=\">=18.9b0\", allow_prereleases=true }
 ") == Ok(TomlTable([
@@ -370,8 +400,37 @@ black = { python=\">3.6\", version=\">=18.9b0\", allow_prereleases=true }
     ("allow_prereleases", TomlBool(true))
   ]))
 ]))
-// TODO: Inline-Table.inline-table - Support Proper Keys
-// TODO: Inline-Table.key-dotted - Support Proper Keys
+assert fromString("
+name = { first = \"Tom\", last = \"Preston-Werner\" }
+point = { x = 1, y = 2 }
+simple = { a = 1 }
+str-key = { \"a\" = 1 }
+table-array = [{ \"a\" = 1 }, { \"b\" = 2 }]
+") == Ok(TomlTable([
+  ("name", TomlTable([
+    ("first", TomlString("Tom")),
+    ("last", TomlString("Preston-Werner")),
+  ])),
+  ("point", TomlTable([
+    ("x", TomlInt(1)),
+    ("y", TomlInt(2)),
+  ])),
+  ("simple", TomlTable([
+    ("a", TomlInt(1))
+  ])),
+  ("str-key", TomlTable([
+    ("a", TomlInt(1))
+  ])),
+  ("table-array", TomlArray([
+    TomlTable([
+      ("a", TomlInt(1))
+    ]),
+    TomlTable([
+      ("b", TomlInt(2))
+    ])
+  ]))
+]))
+// TODO: Inline-Table.key-dotted - Support & Array Keys & Proper Table Keys
 assert fromString("
 tbl_multiline = { a = 1, b = \"\"\"
 multiline
