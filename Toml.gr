@@ -18,7 +18,7 @@ enum LexerToken {
   // TODO: LexedNumeric(String, CanBeFloat, CanBeDate)
   // Unmatched
   // TODO: Consider Changing This To Literal(List<String>)
-  Literal(String),
+  Literal(List<Char>),
   Eq,
   Sbo,
   Cbo,
@@ -368,7 +368,7 @@ let lexToml = (inputStr) => {
     }
     if (didHitItem && List.length(builtLiteral) != 0) {
       // TODO: Make Literal Take A List
-      lexemes = [ Literal(String.implode(Array.fromList(List.reverse(builtLiteral)))), ...lexemes ]
+      lexemes = [ Literal(List.reverse(builtLiteral)), ...lexemes ]
       builtLiteral = []
     }
     lexemes = List.append(scopeLexemes, lexemes)
@@ -377,25 +377,18 @@ let lexToml = (inputStr) => {
   List.reverse(lexemes)
 }
 // Parser
-let isFloat = (str) => {
+let isFloat = (chars) => {
   // TODO: Validate This
-  let lst = Array.toList(String.explode(String.trim(str)))
   // Allow +, -
-  let mut posSign = false
-  let lst = match (lst) {
-    [ '+', ...rest ] => {
-      posSign = true
-      rest
-    },
-    [ '-', ...rest ] => rest,
-    _ => lst
+  let lst = match (chars) {
+    [ '+', ...rest ] | [ '-', ...rest ] => rest,
+    _ => chars
   }
-  let isSpecial = match (lst) {
-    [ 'n', 'a', 'n' ] => true,
-    [ 'i', 'n', 'f' ] => true,
-    _ => false
+  match (lst) {
+    [ 'n', 'a', 'n' ] => return true,
+    [ 'i', 'n', 'f' ] => return true,
+    _ => void
   }
-  if (isSpecial) return true
   // Validation
   if (!List.contains('.', lst) && !List.contains('e', lst) && !List.contains('E', lst)) return false
   let mut lastChar = '_'
@@ -447,9 +440,9 @@ let isFloat = (str) => {
     return false
   }, lst)
 }
-let isNumber = (str) => {
+let isNumber = (chars) => {
   // TODO: Validate This
-  let lst = Array.toList(String.explode(String.trim(str)))
+  let lst = chars
   // Allow +, -
   let mut posSign = false
   let lst = match (lst) {
@@ -532,27 +525,28 @@ let parseTableOrNameKey = (rawKeyLexemes) => {
   let mut keyLexemes  = []
   while (true) {
     match (rawKeyLexemes) {
-      [ Literal(str), ...rest ]=> {
+      [ Literal(chars), ...rest ]=> {
         rawKeyLexemes = rest
         // Split by Dots
-        let mut keyBuf = ""
-        let mut str = Array.toList(String.explode(str))
+        let mut keyBuf = []
+        let mut chars = chars
         while (true) {
-          match (str) {
+          match (chars) {
             [ '.', ...rest ]=> {
-              str = rest
-              if (String.length(keyBuf) > 0) keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
-              keyLexemes = [ Literal("."), ...keyLexemes ]
-              keyBuf = ""
+              chars = rest
+              if (List.length(keyBuf) > 0)
+                keyLexemes = [ Literal(List.reverse(keyBuf)), ...keyLexemes ]
+              keyLexemes = [ Literal(['.']), ...keyLexemes ]
+              keyBuf = []
             },
             [ item, ...rest ] => {
-              str = rest
-              keyBuf = keyBuf ++ Char.toString(item)
+              chars = rest
+              keyBuf = [item, ...keyBuf ]
             },
             [] => break
           }
         }
-        if (String.length(keyBuf) > 0) keyLexemes = [ Literal(keyBuf), ...keyLexemes ]
+        if (List.length(keyBuf) > 0) keyLexemes = [ Literal(List.reverse(keyBuf)), ...keyLexemes ]
       },
       [item, ...rest] => {
         rawKeyLexemes = rest
@@ -583,19 +577,18 @@ let parseTableOrNameKey = (rawKeyLexemes) => {
         if (!lastItemDot) fail "Invalid Toml Key"
         keyBuffer = keyBuffer ++ "false"
       },
-      Literal(".") => {
+      Literal(['.']) => {
         if (lastItemDot) fail "Invalid Toml Key"
         matchedDot = true
         keyPath = [ keyBuffer, ...keyPath]
         keyBuffer = ""
       },
-      Literal(txt) => {
+      Literal(chars) => {
         // Validate
-        Array.forEach((char) => {
+        List.forEach((char) => {
           if (!isValidKeyChar(char)) fail "Invalid Toml Key"
-        }, String.explode(txt))
-        // Add To Buffer
-        keyBuffer = keyBuffer ++ txt
+          keyBuffer = keyBuffer ++ Char.toString(char)
+        }, chars)
       },
       // Invalid
       _ => fail "Invalid Toml Key",
@@ -603,7 +596,7 @@ let parseTableOrNameKey = (rawKeyLexemes) => {
     lastItemDot = matchedDot
   }, keyLexemes)
   // Append The Last Key Buffer
-  if (String.length(keyBuffer) > 0)
+  if (String.byteLength(keyBuffer) > 0)
     keyPath = [ keyBuffer, ...keyPath]
   // Return The KeyPath
   List.reverse(keyPath)
@@ -758,18 +751,17 @@ let rec parseValue = (buffer) => {
     [LexedBool(bool), ...rest ] => (TomlBool(bool), rest),
     // TODO: DateTime
     // Float
-    [Literal(int),...rest] when isFloat(int) => {
-      match (Number.parseFloat(int)) {
-        Ok(int) => (TomlFloat(int), rest),
+    [Literal(float),...rest] when isFloat(float) => {
+      match (Number.parseFloat(String.implode(Array.fromList(float)))) {
+        Ok(float) => (TomlFloat(float), rest),
         Err(_) => fail "Invalid Toml Float"
       }
     },
     // Number
     [Literal(int),...rest] when isNumber(int) => {
-      let mut int = int
-      match (Array.toList(String.explode(int))) {
-        [ '+', ...rest ] => int = String.implode(Array.fromList(rest)),
-        _ => void
+      let int = match (int) {
+        [ '+', ...rest ] => String.implode(Array.fromList(rest)),
+        _ => String.implode(Array.fromList(int)),
       }
       match (Number.parseInt(int, 10)) {
         Ok(int) => (TomlInt(int), rest),
