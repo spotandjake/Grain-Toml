@@ -785,14 +785,40 @@ multiline_with_tab = '''First line
   ("multiline", TomlString("This string\nhas ' a quote character\nand more than\none newline\nin it.")),
   ("multiline_with_tab", TomlString("First line\n\t Followed by a tab")),
 ]))
-// TODO: String.raw - Improve String Parsing
+assert fromString("
+backspace = 'This string has a \\b backspace character.'
+tab = 'This string has a \\t tab character.'
+unescaped_tab = 'This string has an 	 unescaped tab character.'
+newline = 'This string has a \\n new line character.'
+formfeed = 'This string has a \\f form feed character.'
+carriage = 'This string has a \\r carriage return character.'
+slash = 'This string has a \\/ slash character.'
+backslash = 'This string has a \\\\ backslash character.'
+") == Ok(TomlTable([
+  ("backspace", TomlString("This string has a \\b backspace character.")),
+  ("tab", TomlString("This string has a \\t tab character.")),
+  ("unescaped_tab", TomlString("This string has an \t unescaped tab character.")),
+  ("newline", TomlString("This string has a \\n new line character.")),
+  ("formfeed", TomlString("This string has a \\f form feed character.")),
+  ("carriage", TomlString("This string has a \\r carriage return character.")),
+  ("slash", TomlString("This string has a \\/ slash character.")),
+  ("backslash", TomlString("This string has a \\\\ backslash character.")),
+]))
 assert fromString("
 answer = \"You are not drinking enough whisky.\"
 ") == Ok(TomlTable([
   ("answer", TomlString("You are not drinking enough whisky."))
 ]))
-// TODO: String.unicode-escape - Improve String Parsing
-// TODO: String.unicode-literal - Improve String Parsing
+assert fromString("
+answer4 = \"\\u03B4\"
+answer8 = \"\\U000003B4\"
+") == Ok(TomlTable([
+  ("answer4", TomlString("δ")),
+  ("answer8", TomlString("δ"))
+]))
+assert fromString("answer = \"δ\"") == Ok(TomlTable([
+  ("answer", TomlString("δ"))
+]))
 assert fromString("
 pound = \"We see no # comments here.\"
 poundcomment = \"But there are # some comments here.\" # Did I # mess you up?
