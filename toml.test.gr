@@ -1,0 +1,3 @@
+module TomlTest
+include "./src/toml"
+// Tests

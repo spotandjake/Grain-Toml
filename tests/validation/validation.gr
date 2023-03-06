@@ -1,8 +1,0 @@
-module Validation
-include "sys/file"
-// Helper
-let readFile = (file) => {
-
-}
-// Invalid
-// Valid

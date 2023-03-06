@@ -1,336 +1,263 @@
 module Toml
-
+include "string"
 include "array"
 include "list"
-include "string"
 include "char"
 include "number"
-// Toml Value
+include "./src/lexer"
+from Lexer use {
+  type Token
+}
+// Lexer
 provide enum TomlValue {
-  // Exprs
+  TomlString(String),
+  TomlInteger(Number),
+  TomlFloat(Number),
+  TomlBoolean(Bool),
+  TomlDateTime(String, String),
+  TomlDate(String),
+  TomlTime(String),
   TomlTable(List<(String, TomlValue)>),
   TomlArray(List<TomlValue>),
-  // Values
-  TomlString(String),
-  TomlBool(Bool),
-  TomlFloat(Number),
-  TomlInt(Number)
 }
-// Helpers
-let setTableElement = (rawKey, value, table) => {
-  // TODO: Handle Key Properly
-  // Parse The Key
-  let key = String.implode(Array.fromList(rawKey))
-  // Set The Value
-  [(key, value), ...table]
+let isValidKeyTable = (name) => {
+  Array.every((char) => {
+    let charCode = Char.code(char)
+    if (charCode >= Char.code('A') && charCode <= Char.code('Z')) {
+      true
+    } else if (charCode >= Char.code('a') && charCode <= Char.code('z')) {
+      true
+    } else if (charCode >= Char.code('0') && charCode <= Char.code('9')) {
+      true
+    } else if (char == '-' || char == '_') {
+      true
+    } else {
+      false
+    }
+  }, String.explode(String.trim(name)))
 }
-let validKeyChar = keyChar => {
-  // A-Za-z0-9_-"'
-  let keyCode = Char.code(keyChar)
-  if (keyCode >= 0x41 && keyCode <= 0x5A) {
-    // A-Z
-    true
-  } else if (keyCode >= 0x61 && keyCode <= 0x7A) {
-    // a-z
-    true
-  } else if (keyCode >= 0x30 && keyCode <= 0x39) {
-    // 0-9
-    true
-  } else if (
-    keyChar == '_' || keyChar == '-' || keyChar == '"' || keyChar == '\''
-  ) {
-    // _-"'
-    true
-  } else {
-    false
+let parseKey = (key) => {
+  // TODO: Handle Validation
+  let key = Array.toList(String.explode(String.trim(key)))
+  let mut closeString = ' '
+  let mut keyPath = []
+  let mut currentKey = ""
+  List.forEach((char) => {
+    // Handle String
+    if (char == '\'' && closeString != '"') {
+      if (closeString == '\'') closeString = ' '
+      else if (closeString == ' ') closeString = '\''
+      return
+    } else if (char == '"' && closeString != '\'') {
+      if (closeString == '"') closeString = ' '
+      else if (closeString == ' ') closeString = '"'
+      return
+    }
+    // Handle Writing Key
+    if (char == '.' && closeString == ' ') {
+      keyPath = [ currentKey, ...keyPath ]
+      currentKey = ""
+    } else currentKey = currentKey ++ Char.toString(char)
+    return
+  }, key)
+  keyPath = [ currentKey, ...keyPath ]
+  List.reverse(keyPath)
+}
+let rec writeTable = (rootTable, keyPath, value) => {
+  // TODO: Validate This
+  match (keyPath) {
+    [ pathItem ] => match (rootTable) {
+      TomlTable(tableContents) => {
+        // Write Value
+        TomlTable([
+          (pathItem, value),
+          ...tableContents
+        ])
+      },
+      _ => fail "Invalid Toml Object"
+    },
+    [ pathItem, ...rest ] => match (rootTable) {
+      TomlTable(tableContents) => {
+        // Search Table
+        let hasSubTable = List.some(((keyName, _)) => keyName == pathItem, tableContents)
+        match (hasSubTable) {
+          true => {
+            TomlTable(List.map(((keyName, keyValue)) => {
+              if (keyName == pathItem)
+                (keyName, writeTable(keyValue, rest, value))
+              else (keyName, keyValue)
+            }, tableContents))
+          },
+          false => TomlTable([(pathItem, writeTable(TomlTable([]), rest, value)), ...tableContents])
+        }
+      },
+      _ => fail "Invalid Toml Object"
+    },
+    [] => fail "Empty KeyPath"
   }
 }
-let isValidNumberStart = (keyChar) => {
-  let keyCode = Char.code(keyChar)
-  if (keyChar == '+' || keyChar == '-') {
-    true
-  } else if (keyCode >= 0x30 && keyCode <= 0x39) {
-    // 0-9
-    true
-  } else {
-    false
-  }
-}
-let isValidNumberCharacter = (keyChar) => {
-  let keyCode = Char.code(keyChar)
-  if (keyCode >= 0x30 && keyCode <= 0x39) {
-    // 0-9
-    true
-  } else {
-    false
-  }
-}
-// Parser
-let rec parseTomlValue = strBuf => {
-  let mut strBuf = strBuf
-  match (strBuf) {
+// TODO: Implement isNumber, isFloat
+let isFloat = (str) => false
+let isNumber = (str) => false
+// Parsers
+let rec parseValue = (buffer) => {
+  match (buffer) {
+    // Objects
+    // Inline-Table
+    [ Cbo, ...rest ] => {
+      let mut buffer = rest
+      // Parse Values
+      let mut canDoAnother = true
+      let mut rootTable = TomlTable([])
+      while (true) {
+        match (buffer) {
+          [ Comma, ...rest ] => {
+            buffer = rest
+            canDoAnother = true
+          },
+          [ Cbc, ...rest ] => {
+            buffer = rest
+            break
+          },
+          // TODO: Handle Keys With Strings
+          [ Literal(keyName), Eq, ...rest ] when canDoAnother => {
+            canDoAnother = false
+            buffer = rest
+            // Validate Key Name
+            if (!isValidKeyTable(keyName)) fail "Invalid Key Name"
+            // Parse The Value
+            let (value, rest) = parseValue(rest)
+            buffer = rest
+            // Write To Current Table
+            rootTable = writeTable(rootTable, parseKey(keyName), value)
+          },
+          // Invalid
+          _ => fail "Invalid Toml Object"
+        }
+      }
+      if (canDoAnother) fail "Invalid Trailing Comma In Table"
+      (rootTable, buffer)
+    },
+    // Inline-Array
+    [ Sbo, ...rest ] => {
+      let mut buffer = rest
+      let mut values = []
+      // Parse Values
+      let mut canDoAnother = true
+      while (true) {
+        match (buffer) {
+          [ LineBreak, ...rest ] => {
+            buffer = rest
+          },
+          [ Comma, ...rest ] => {
+            buffer = rest
+            canDoAnother = true
+          },
+          [ Sbc, ...rest ] => {
+            buffer = rest
+            break
+          },
+          _ when canDoAnother => {
+            canDoAnother = false
+            let (value, rest) = parseValue(buffer)
+            buffer = rest
+            values = [ value, ...values]
+          },
+          // Invalid
+          _ => fail "Invalid Toml Array"
+        }
+      }
+      (TomlArray(List.reverse(values)), buffer)
+    },
     // Strings
-    ['"', '"', '"', ...rest] => {
-      strBuf = rest
-      let mut str = ""
-      while (true) {
-        match (strBuf) {
-          ['"', '"', '"', ...rest] => {
-            strBuf = rest
-            break
-          },
-          [strChar, ...rest] => {
-            strBuf = rest
-            str = str ++ Char.toString(strChar)
-          },
-          _ => fail "Invalid Toml String",
-        }
-      }
-      // TODO: Handle Trimming
-      (TomlString(str), strBuf)
-    },
-    ['"', ...rest] => {
-      strBuf = rest
-      let mut str = ""
-      while (true) {
-        match (strBuf) {
-          ['\\', '"', ...rest] => {
-            strBuf = rest
-            str = str ++ "\\\""
-          },
-          ['"', ...rest] => {
-            strBuf = rest
-            break
-          },
-          [strChar, ...rest] => {
-            strBuf = rest
-            str = str ++ Char.toString(strChar)
-          },
-          _ => fail "Invalid Toml String",
-        }
-      }
-      // TODO: Normalize String
-      (TomlString(str), strBuf)
-    },
-    // Boolean
-    ['t', 'r', 'u', 'e', ...rest] => {
-      (TomlBool(true), rest)
-    },
-    ['f', 'a', 'l', 's', 'e', ...rest] => {
-      (TomlBool(false), rest)
-    },
-    // Integer || Float
-    [keyChar, ...rest] when isValidNumberStart(keyChar) => {
-      let positive = keyChar != '-'
-      if (keyChar == '+' || keyChar == '-') strBuf = rest
-      // Nan, Inf
-      match (strBuf) {
-        [ 'n', 'a', 'n', ...rest ] => {
-          (TomlFloat(NaN), rest)
-        },
-        [ 'i', 'n', 'f', ...rest ] => {
-          (TomlFloat(Infinity), rest)
-        },
-        _ => {
-          // Slow Paths
-          let mut isFloat = false
-          let mut isInt = false
-          let mut value = ""
-          if (!positive) value = value ++ "-"
-          while (true) {
-            match (strBuf) {
-              [keyChar, ...rest] when isValidNumberCharacter(keyChar) => {
-                strBuf = rest
-                value = value ++ Char.toString(keyChar)
-              },
-              [ keyFloat, ...rest ] when keyFloat == 'e' || keyFloat == 'E' || keyFloat == '.' || keyFloat == '-' => {
-                if (isInt) fail "Invalid Toml Integer"
-                strBuf = rest
-                value = value ++ Char.toString(keyFloat)
-                isFloat = true
-              },
-              [ keyInt, ...rest ] when keyInt == 'b' || keyInt == 'o' || keyInt == 'x' => {
-                if (isFloat) fail "Invalid Toml Float"
-                strBuf = rest
-                value = value ++ Char.toString(keyInt)
-                isInt = true
-              },
-              _ => break,
-            }
-          }
-          let numberResult = match (isFloat) {
-            true => Number.parseFloat(value),
-            false => Number.parseInt(value, 10)
-          }
-          match (numberResult) {
-            Ok(num) => {
-              match (isFloat) {
-                true => (TomlFloat(num), strBuf),
-                false => (TomlInt(num), strBuf),
-              }
-            },
-            Err(_) => match (isFloat) {
-              true => fail "Invalid Toml Float",
-              false => fail "Invalid Toml Integer",
-            },
-          }
-        }
+    [ SingleQuote, Literal(literal), SingleQuote, ...rest ] => (TomlString(literal), rest),
+    [ SingleQuote, SingleQuote, SingleQuote, Literal(literal), SingleQuote, SingleQuote, SingleQuote, ...rest ] => (TomlString(literal), rest),
+    // TODO: Handle Escaping
+    [ DoubleQuote, Literal(literal), DoubleQuote, ...rest ] => (TomlString(literal), rest),
+    // TODO: Handle Escaping
+    // TODO: Handle Trimming
+    // TODO: Handle Newline Backslash
+    [ DoubleQuote, DoubleQuote, DoubleQuote, Literal(literal), DoubleQuote, DoubleQuote, DoubleQuote, ...rest ] => (TomlString(literal), rest),
+    // Parse Literals
+    [Literal(bool),...rest] when String.trim(bool) == "true" => (TomlBoolean(true), rest),
+    [Literal(bool),...rest] when String.trim(bool) == "false" => (TomlBoolean(false), rest),
+    // TODO: DateTime
+    // Float
+    [Literal(int),...rest] when isFloat(int) => {
+      match (Number.parseFloat(int)) {
+        Ok(int) => (TomlFloat(int), rest),
+        Err(_) => fail "Invalid Toml Float"
       }
     },
-    // Invalid
-    _ => {
-      print(strBuf)
-      fail "Invalid Toml Value"
+    // Number
+    [Literal(int),...rest] when isNumber(int) => {
+      match (Number.parseInt(int, 10)) {
+        Ok(int) => (TomlInteger(int), rest),
+        Err(_) => fail "Invalid Toml Integer"
+      }
     },
+    // Unknown
+    _ => fail "Unknown Value"
   }
 }
-let rec parseExpressionList = strBuf => {
-  let mut strBuf = strBuf
-  let mut currentTableName = []
-  let mut rootTable = []
-  let mut currentTable = []
-
-  let mut lastNewLine = 0
-  let mut currentLine = 0
-  while (true) {
-    match (strBuf) {
-      // Comment
-      ['#', ...rest] => {
-        strBuf = rest
-        // TODO: Handle Control Characters
-        while (true) {
-          match (strBuf) {
-            ['\r', '\n', ...rest] | ['\n', ...rest] => break,
-            [_, ...rest] => strBuf = rest,
-            _ => break,
-          }
-        }
-      },
+let parseFile = (buffer) => {
+  let mut buffer = buffer
+  let mut keyPath = []
+  let mut rootTable = TomlTable([])
+  while (List.length(buffer) > 0) {
+    // Expressions
+    match (buffer) {
       // Table
-      ['[', ...rest] => {
-        strBuf = rest
-        let mut identifier = []
-        while (true) {
-          // TODO: Verify Toml
-          match (strBuf) {
-            [']', ...rest] => {
-              strBuf = rest
-              break
-            },
-            [identifierCharacter, ...rest] => {
-              identifier = [identifierCharacter, ...identifier]
-              strBuf = rest
-            },
-            _ => break,
-          }
-        }
-        if (List.length(currentTableName) == 0) {
-          // TODO: Copy to the root table
-          rootTable = List.append(rootTable, currentTable)
-        } else {
-          rootTable = setTableElement(
-            currentTableName,
-            TomlTable(List.reverse(currentTable)),
-            rootTable
-          )
-        }
-        currentTable = []
-        identifier = List.reverse(identifier)
-        currentTableName = identifier
+      [ Sbo, Literal(tableName), Sbc, ...rest ] => {
+        buffer = rest
+        // Validate Table name
+        if (!isValidKeyTable(tableName)) fail "Invalid Table Name"
+        // Write Table Name
+        keyPath = parseKey(tableName)
+        // Write To Current Table
+        rootTable = writeTable(rootTable, keyPath, TomlTable([]))
       },
-      // Blank Space
-      [' ', ...rest] => strBuf = rest,
-      ['\r', '\n', ...rest] | ['\n', ...rest] => {
-        // Break Table
-        if (List.length(currentTableName) != 0) {
-          rootTable = setTableElement(
-            currentTableName,
-            TomlTable(List.reverse(currentTable)),
-            rootTable
-          )
-          currentTable = []
-          currentTableName = []
-        }
-      },
-      // TODO: Handle Untrimmed lines, and tabs and stuff
-      // Done Parsing
-      [] => {
-        if (List.length(currentTableName) != 0) {
-          rootTable = setTableElement(
-            currentTableName,
-            TomlTable(List.reverse(currentTable)),
-            rootTable
-          )
-        } else if (List.length(currentTable) != 0) {
-          rootTable = List.append(currentTable, rootTable)
-        }
-        break
+      // TODO: Table Array
+      [ Sbo, Sbo, Literal(tableName), Sbc, Sbc, ...rest ] => {
+        buffer = rest
+        // Validate Table name
+        if (!isValidKeyTable(tableName)) fail "Invalid Table Name"
+        // TODO: Write Table Name
       },
       // Key Value
-      [keyStart, ...rest] when validKeyChar(keyStart) => {
-        strBuf = rest
-        let mut valueKey = [keyStart]
-        while (true) {
-          // TODO: Handle ., handle matching ending quotes
-          match (strBuf) {
-            [' ', ...rest] => {
-              strBuf = rest
-            },
-            ['=', ...rest] => {
-              strBuf = rest
-              break
-            },
-            [keyChar, ...rest] when validKeyChar(keyChar) => {
-              valueKey = [keyChar, ...valueKey]
-              strBuf = rest
-            },
-            _ => fail "Invalid Toml Expected Equal",
-          }
-        }
-        let valueKey = List.reverse(valueKey)
-        // Trim White space
-        while (true) {
-          match (strBuf) {
-            [' ', ...rest] => strBuf = rest,
-            [] => fail "Invalid Toml Expected Value",
-            _ => break,
-          }
-        }
-        // Match The Value
-        let (value, rest) = parseTomlValue(strBuf)
-        strBuf = rest
-        // TODO: Append the KeyValue to context
-        currentTable = setTableElement(valueKey, value, currentTable)
+      [ Literal(keyName), Eq, ...rest ] => {
+        buffer = rest
+        // Validate Key Name
+        if (!isValidKeyTable(keyName)) fail "Invalid Key Name"
+        // Parse Key
+        let key = List.append(keyPath, parseKey(keyName))
+        // Parse The Value
+        let (value, rest) = parseValue(rest)
+        buffer = rest
+        // Write To Current Table
+        rootTable = writeTable(rootTable, key, value)
       },
-      // Invalid Toml
-      _ => {
-        print(strBuf)
-        fail "Invalid Toml"
+      // Line Break
+      [ LineBreak, LineBreak, ...rest ] => {
+        buffer = rest
+        // Reset Current Table Name
+        keyPath = []
       },
-    }
-    // Match The End Of Line
-    while (true) {
-      match (strBuf) {
-        // Trim End Of Line
-        [' ', ...rest] => strBuf = rest,
-        // Comment can be ignored
-        ['#', ...rest] => strBuf = rest,
-        // Match End Of Expr
-        ['\r', '\n', ...rest] | ['\n', ...rest] => {
-          strBuf = rest
-          break
-        },
-        [] => break, // end of program
-        _ => fail "Invalid Toml Line End",
-      }
+      [ LineBreak, ...rest ] => buffer = rest,
+      // Invalid
+      _ => fail "Invalid Toml"
     }
   }
-  List.reverse(rootTable)
+  // Return Table
+  rootTable
 }
-// File Api
-provide let parse = inputStr => {
-  // Explode The String
-  let inputStr = Array.toList(String.explode(inputStr))
-  // Parse The File
-  parseExpressionList(inputStr)
+// Public Api
+provide let fromString = (str) => {
+  let lexed = Lexer.lex(str)
+  let parsed = parseFile(lexed)
+  // Return Parsed
+  parsed
 }
+// Assert
+print(fromString("[test]\n\ntest2 = [ 'test',\n\n'test' ]"))
+print(fromString("[test]\ntest2 = { test = 'test' }"))

@@ -1,4 +1,0 @@
-module LexerTest
-include "../src/toml"
-// Comment
-assert Toml.fromString("# hello World") == Ok(TomlValue.TomlTable([]))
