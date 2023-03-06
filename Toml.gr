@@ -116,7 +116,10 @@ let lex = (inputStr) => {
                 endIndex += 2
                 quoteCount = maxQuoteCount
               },
-              Some(quote) when quote == quoteType => quoteCount -= 1,
+              Some(quote) when quote == quoteType => {
+                endIndex += 1
+                quoteCount -= 1
+              },
               _ => {
                 endIndex += 1
                 quoteCount = maxQuoteCount
@@ -124,6 +127,7 @@ let lex = (inputStr) => {
             }
             if (quoteCount == 0) break
           }
+          endIndex -= maxQuoteCount
           // Collect String
           let str = Bytes.slice(index, endIndex, data.data)
           let str = Bytes.toString(str)
@@ -392,8 +396,6 @@ let isNumber = (str) => {
     return false
   }, lst)
 }
-// TODO: Make This Proper
-// TODO: Handle Escaping
 let escapeString = (str, isBasic, isMultiLine) => {
   // Normalize Line Ending
   let mut normalStr = ""
@@ -422,6 +424,60 @@ let escapeString = (str, isBasic, isMultiLine) => {
       [ '\n', ...rest ] => str = rest,
       _ => void
     }
+  }
+  // Handle Trimming
+  if (isBasic && isMultiLine) {
+    let mut tempStr = str
+    str = []
+    while (true) {
+      match (tempStr) {
+        [ '\\', '\\', ...rest] => {
+          str = [ '\\', '\\', ...str ]
+          tempStr = rest
+        },
+        [ '\\', ...rest ] => {
+          let mut tempBuffer = rest
+          let mut tempRest = rest
+          let mut isNewLine = false
+          while (true) {
+            match (tempRest) {
+              [ '\n', ...rest ] => {
+                isNewLine = true
+                tempRest = rest
+              },
+              [ ' ', ...rest ] => {
+                tempBuffer = [ ' ', ...tempBuffer ]
+                tempRest = rest
+              },
+              [ '\t', ...rest ] => {
+                tempBuffer = [ '\t', ...tempBuffer ]
+                tempRest = rest
+              },
+              [ n, ...rest ] => {
+                // If Not Is NewLine
+                if (isNewLine) {
+                  tempStr = [ n, ...rest ]
+                } else {
+                  str = [ '\\', ...str ]
+                  tempStr = tempBuffer
+                }
+                break
+              },
+              [] => {
+                tempStr = []
+                break
+              }
+            }
+          }
+        },
+        [ item, ...rest ] => {
+          str = [ item, ...str ]
+          tempStr = rest
+        },
+        [] => break
+      }
+    }
+    str = List.reverse(str)
   }
   // Handle Escaping
   while (true) {
@@ -494,29 +550,6 @@ let escapeString = (str, isBasic, isMultiLine) => {
       },
       [] => break
     }
-  }
-  // handle trailing \
-  if (isBasic && isMultiLine) {
-    let mut lines = String.split("\n", escapedStr)
-    escapedStr = ""
-    let mut lastLineTrim = false
-    Array.forEachi((line, index) => {
-      let mut line = line
-      if (index != Array.length(lines) - 1) line = line ++ "\n"
-      // Handle Trimming
-      if (lastLineTrim) {
-        line = String.trimStart(line)
-      }
-      if (String.endsWith("\\", String.trimEnd(line))) {
-        lastLineTrim = true
-        // TODO: Get Rid Of The Slash
-        line = String.trimEnd(line)
-        line = String.slice(0, -1, line)
-      } else {
-        lastLineTrim = false
-      }
-      escapedStr = escapedStr ++ line
-    }, lines)
   }
   // return escaped string
   escapedStr

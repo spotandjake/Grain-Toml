@@ -670,74 +670,121 @@ equivalent_three = \"\"\"\\
 assert fromString("0=\"\"\"\\\r\n\"\"\"") == Ok(TomlTable([
   ("0", TomlString(""))
 ]))
-assert fromString("lit_one = ''''one quote''''") == Ok(TomlTable([
-  ("lit_one", TomlString(" 'one quote' "))
-]))
-// assert fromString("
-// lit_one = ''''one quote''''
-// # lit_two = '''''two quotes'''''
-// # lit_one_space = ''' 'one quote' '''
-// # lit_two_space = ''' ''two quotes'' '''
-
-// # one = \"\"\"\"one quote\"\"\"\"
-// # two = \"\"\"\"\"two quotes\"\"\"\"\"
-// # one_space = \"\"\" \"one quote\" \"\"\"
-// # two_space = \"\"\" \"\"two quotes\"\" \"\"\"
-
-// # mismatch1 = \"\"\"aaa'''bbb\"\"\"
-// # mismatch2 = '''aaa\"\"\"bbb'''
-
-// # escaped = \"\"\"lol\\\"\"\"\"\"\"
-// ") == Ok(TomlTable([
-//   ("lit_one", TomlString("'one quote'"))
-// ]))
-// {
-//   "escaped": {
-//     "type": "string",
-//     "value": "lol\"\"\""
-//   },
-//   "lit_one_space": {
-//     "type": "string",
-//     "value": " 'one quote' "
-//   },
-//   "lit_two": {
-//     "type": "string",
-//     "value": "''two quotes''"
-//   },
-//   "lit_two_space": {
-//     "type": "string",
-//     "value": " ''two quotes'' "
-//   },
-//   "mismatch1": {
-//     "type": "string",
-//     "value": "aaa'''bbb"
-//   },
-//   "mismatch2": {
-//     "type": "string",
-//     "value": "aaa\"\"\"bbb"
-//   },
-//   "one": {
-//     "type": "string",
-//     "value": "\"one quote\""
-//   },
-//   "one_space": {
-//     "type": "string",
-//     "value": " \"one quote\" "
-//   },
-//   "two": {
-//     "type": "string",
-//     "value": "\"\"two quotes\"\""
-//   },
-//   "two_space": {
-//     "type": "string",
-//     "value": " \"\"two quotes\"\" "
-//   }
-// }
 // TODO: String.multiline-qoutes - Improve String Parsing
-// TODO: String.multiline - Improve String Parsing
-// TODO: String.nl - Improve String Parsing
-// TODO: String.qouted-unicode - Improve String Parsing
-// TODO: String.raw-multiline - Improve String Parsing
+assert fromString("
+multiline_empty_one = \"\"\"\"\"\"
+
+multiline_empty_two = \"\"\"
+\"\"\"
+
+multiline_empty_three = \"\"\"\\
+    \"\"\"
+multiline_empty_four = \"\"\"\\
+   \\
+   \\
+   \"\"\"
+
+equivalent_one = \"The quick brown fox jumps over the lazy dog.\"
+equivalent_two = \"\"\"
+The quick brown \\
+
+
+  fox jumps over \\
+    the lazy dog.\"\"\"
+
+equivalent_three = \"\"\"\\
+       The quick brown \\
+       fox jumps over \\
+       the lazy dog.\\
+       \"\"\"
+
+whitespace-after-bs = \"\"\"\\
+       The quick brown \\
+       fox jumps over \\
+       the lazy dog.\\
+       \"\"\"
+
+no-space = \"\"\"a\\
+    b\"\"\"
+
+keep-ws-before = \"\"\"a   	\\
+   b\"\"\"
+
+escape-bs-1 = \"\"\"a \\\\
+b\"\"\"
+
+escape-bs-2 = \"\"\"a \\\\\\
+b\"\"\"
+
+escape-bs-3 = \"\"\"a \\\\\\\\
+  b\"\"\"
+") == Ok(TomlTable([
+  ("multiline_empty_one", TomlString("")),
+  ("multiline_empty_two", TomlString("")),
+  ("multiline_empty_three", TomlString("")),
+  ("multiline_empty_four", TomlString("")),
+  ("equivalent_one", TomlString("The quick brown fox jumps over the lazy dog.")),
+  ("equivalent_two", TomlString("The quick brown fox jumps over the lazy dog.")),
+  ("equivalent_three", TomlString("The quick brown fox jumps over the lazy dog.")),
+  ("whitespace-after-bs", TomlString("The quick brown fox jumps over the lazy dog.")),
+  ("no-space", TomlString("ab")),
+  ("keep-ws-before", TomlString("a   \tb")),
+  ("escape-bs-1", TomlString("a \\\nb")),
+  ("escape-bs-2", TomlString("a \\b")),
+  ("escape-bs-3", TomlString("a \\\\\n  b")),
+]))
+assert fromString("
+nl_mid = \"val\\nue\"
+nl_end = \"\"\"value\\n\"\"\"
+
+lit_nl_end = '''value\\n'''
+lit_nl_mid = 'val\\nue'
+lit_nl_uni = 'val\\ue'
+") == Ok(TomlTable([
+  ("nl_mid", TomlString("val\nue")),
+  ("nl_end", TomlString("value\n")),
+  ("lit_nl_end", TomlString("value\\n")),
+  ("lit_nl_mid", TomlString("val\\nue")),
+  ("lit_nl_uni", TomlString("val\\ue")),
+]))
+// TODO: FIXME - Look into why ud800 is invalid
+// assert fromString("
+// escaped_string = \"\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff\"
+// not_escaped_string = '\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff'
+
+// basic_string = \"~  ÿ ퟿  ￿ 𐀀 􏿿\"
+// literal_string = '~  ÿ ퟿  ￿ 𐀀 􏿿'
+// ") == Ok(TomlTable([
+//   ("escaped_string", TomlTable("\u0000 \b \f A \u007f \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff")),
+//   ("not_escaped_string", TomlTable("\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff")),
+//   ("basic_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff")),
+//   ("literal_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff"))
+// ]))
+assert fromString("
+# Single ' should be allowed.
+oneline = '''This string has a ' quote character.'''
+
+# A newline immediately following the opening delimiter will be trimmed.
+firstnl = '''
+This string has a ' quote character.'''
+
+# All other whitespace and newline characters remain intact.
+multiline = '''
+This string
+has ' a quote character
+and more than
+one newline
+in it.'''
+
+# Tab character in literal string does not need to be escaped
+multiline_with_tab = '''First line
+	 Followed by a tab'''
+") == Ok(TomlTable([
+  ("oneline", TomlString("This string has a ' quote character.")),
+  ("firstnl", TomlString("This string has a ' quote character.")),
+  ("multiline", TomlString("This string\nhas ' a quote character\nand more than\none newline\nin it.")),
+  ("multiline_with_tab", TomlString("First line\n\t Followed by a tab")),
+]))
 // TODO: String.raw - Improve String Parsing
 assert fromString("
 answer = \"You are not drinking enough whisky.\"
