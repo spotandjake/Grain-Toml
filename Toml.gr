@@ -90,6 +90,7 @@ let lex = (inputStr) => {
         let mut maxQuoteCount = 1
         let mut quoteCount = 1
         let mut hasHitSomething = false
+        // TODO: Fix This, Validate Different String Sizes
         while (!streamIsEmpty(data)) {
           let nextByte = streamPeekUint8(data)
           let nextValue = getSpecialByte(nextByte)
@@ -399,7 +400,18 @@ let escapeString = (str, trimString) => {
       _ => void
     }
   }
-  let mut str = String.replaceAll("\\\"", "\"", str)
+  let str = String.replaceAll("\\b", "\u0008", str) // Backspace
+  let str = String.replaceAll("\\t", "\u0009", str) // Tab
+  let str = String.replaceAll("\\n", "\u000A", str) // LineFeed
+  let str = String.replaceAll("\\f", "\u000C", str) // FormFeed
+  let str = String.replaceAll("\\r", "\u000D", str) // Carriage Return
+  let str = String.replaceAll("\\e", "\u001B", str) // Carriage Return
+  let str = String.replaceAll("\\\"", "\u0022", str) // Quote
+  let str = String.replaceAll("\\\\", "\u005C", str) // BackSlash
+  // TODO: Implement Unicode Types Below
+  // \xHH       - unicode         (U+00HH)
+  // \uHHHH     - unicode         (U+HHHH)
+  // \UHHHHHHHH - unicode         (U+HHHHHHHH)
   str
 }
 // Parsers
@@ -569,11 +581,3 @@ provide let fromString = (str) => {
   // Return Parsed
   Ok(rootTable)
 }
-
-print(fromString("
-[a.b]
-answer = 42
-
-[a]
-better = 43
-"))
