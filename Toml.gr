@@ -1164,7 +1164,7 @@ let parseFile = parserState => {
           Err(err) => return Err(err),
           Ok((key, isArrayHeader)) => {
             if (isArrayHeader) fail "Not Yet Implemented Array Header"
-            rootKey = key
+            else rootKey = key
           },
         },
       // #

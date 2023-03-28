@@ -1,0 +1,371 @@
+// This file takes The content in the two test directory's and generates a grain test file
+
+module TestGenerator
+
+include "sys/file"
+include "int64"
+include "array"
+include "list"
+include "string"
+include "buffer"
+include "bytes"
+
+include "./json"
+from Json use { type JSON, parse }
+// Types
+record TomlFlags {
+  mut hasTime: Bool,
+}
+// Helpers
+let readFile = filePath => {
+  // Open The File
+  let fd = File.open(
+    filePath,
+    [File.Exclusive],
+    [File.FdRead, File.FdFilestats],
+    [File.FdRead],
+    []
+  )
+  // Read The File Contents
+  match (fd) {
+    Ok(descriptor) => {
+      match (File.fdFilestats(descriptor)) {
+        Ok(stats) =>
+          match (File.fdRead(descriptor, Int64.toNumber(stats.size))) {
+            Ok((contents, _)) => Ok(contents),
+            Err(err) => throw err,
+          },
+        Err(err) => throw err,
+      }
+    },
+    Err(_) => Err("[Error: " ++ filePath ++ "]"),
+  }
+}
+let writeFile = (filePath, fileContents) => {
+  // TODO: if the file already exists this does not work
+  // Open The File
+  let fd = File.open(
+    filePath,
+    [File.Create],
+    [File.FdWrite],
+    [File.FdWrite],
+    []
+  )
+  // Read The File Contents
+  match (fd) {
+    Ok(descriptor) => {
+      // Write The File Contents
+      let writeSuccess = File.fdWrite(descriptor, fileContents)
+      match (writeSuccess) {
+        Ok(_) => void,
+        Err(_) => fail "[Error Writing File: " ++ filePath ++ "]",
+      }
+    },
+    Err(_) => fail "[Error: " ++ filePath ++ "]",
+  }
+}
+let rec getTests = (root, suiteName, requireOutput) => {
+  from File use { type DirectoryEntry, type Filetype }
+  // Open The Path
+  let pathRef = File.open(
+    root,
+    [File.Exclusive],
+    [File.PathOpen, File.FdReaddir],
+    [File.PathOpen, File.FdReaddir],
+    []
+  )
+  // Read The Files
+  let pathRef = match (pathRef) {
+    Ok(path) => path,
+    Err(err) => fail "Failed To Get Tests",
+  }
+  let subPaths = File.fdReaddir(pathRef)
+  let subPaths = match (subPaths) {
+    Ok(paths) => paths,
+    Err(err) => fail "Failed To Get Tests",
+  }
+  let mut paths = []
+  let mut rootTests = []
+  Array.forEach(({ inode, filetype, path }) => {
+    if (filetype == Directory) {
+      // Open The Path
+      let pathRef = File.open(
+        root ++ path,
+        [File.Exclusive],
+        [File.PathOpen, File.FdReaddir],
+        [File.PathOpen, File.FdReaddir],
+        []
+      )
+      // Read The Files
+      let pathRef = match (pathRef) {
+        Ok(path) => path,
+        Err(err) => fail "Failed To Get Tests",
+      }
+      let subPaths = File.fdReaddir(pathRef)
+      let subPaths = match (subPaths) {
+        Ok(paths) => paths,
+        Err(err) => fail "Failed To Get Tests",
+      }
+      // Filter Files
+      let tests = Array.filter(({ inode, filetype, path }) =>
+        filetype == RegularFile, subPaths)
+      // Filter Directories
+      let tomlFiles = Array.filter(({ inode, filetype, path }) =>
+        String.endsWith(".toml", path), tests)
+      // Map
+      let root = root ++ path ++ "/"
+      let tomlPaths = Array.map(({ inode, filetype, path }) => {
+        let outputName = match (requireOutput) {
+          true => {
+            let jsonPath = String.replaceLast(".toml", ".json", path)
+            let outputFile = Array.find(({ inode, filetype, path }) =>
+              path == jsonPath, subPaths)
+            match (outputFile) {
+              Some({ inode, filetype, path }) => path,
+              None => fail "Failed To Find Output File",
+            }
+          },
+          false => "",
+        }
+        (root ++ path, root ++ outputName)
+      }, tomlFiles)
+      // Add To Path List
+      paths = [(path, tomlPaths), ...paths]
+    } else if (filetype == RegularFile && String.endsWith(".toml", path)) {
+      let outputName = match (requireOutput) {
+        true => {
+          let jsonPath = String.replaceLast(".toml", ".json", path)
+          let outputFile = Array.find(({ inode, filetype, path }) =>
+            path == jsonPath, subPaths)
+          match (outputFile) {
+            Some({ inode, filetype, path }) => path,
+            None => fail "Failed To Find Output File",
+          }
+        },
+        false => "",
+      }
+      rootTests = [(root ++ path, root ++ outputName), ...rootTests]
+    }
+    void
+  }, subPaths)
+  paths = [(suiteName, Array.fromList(rootTests)), ...paths]
+  paths
+}
+let sanitizeGrainString = str => {
+  let str = String.replaceAll("\\", "\\\\", str)
+  let str = String.replaceAll("\"", "\\\"", str)
+  let str = String.replaceAll("\r", "\\r", str)
+  let str = String.replaceAll("\n", "\\n", str)
+  let str = String.replaceAll("\t", "\\t", str)
+  str
+}
+let rec jsonToTomlStr = (json, buffer, flags) => {
+  match (json) {
+    JSONNull => fail "Invalid Json Toml Conversion",
+    JSONBoolean(_) => fail "Invalid Json Toml Conversion",
+    JSONNumber(_) => fail "Invalid Json Toml Conversion",
+    JSONString(str) => fail "Invalid Json Toml Conversion",
+    JSONArray(arrItems) => {
+      Buffer.addString("TomlArray([\n", buffer)
+      List.forEach(jsonItem => {
+        jsonToTomlStr(jsonItem, buffer, flags)
+        Buffer.addString(",\n", buffer)
+      }, arrItems)
+      Buffer.addString("])", buffer)
+    },
+    JSONObject(
+      [("type", JSONString(jsonType)), ("value", JSONString(str))]
+    ) => {
+      match (jsonType) {
+        "string" =>
+          Buffer.addString(
+            "TomlString(\"" ++ sanitizeGrainString(str) ++ "\")",
+            buffer
+          ),
+        "integer" => Buffer.addString("TomlInt(" ++ str ++ ")", buffer),
+        "float" => {
+          if (str == "nan") {
+            Buffer.addString("TomlFloat(NaN)", buffer)
+          } else if (str == "-Inf" || str == "-inf") {
+            Buffer.addString("TomlFloat(-Infinity)", buffer)
+          } else if (
+            str == "Inf" || str == "+Inf" || str == "+inf" || str == "inf"
+          ) {
+            Buffer.addString("TomlInt(Infinity)", buffer)
+          } else {
+            Buffer.addString("TomlFloat(" ++ str ++ ")", buffer)
+          }
+        },
+        "bool" => Buffer.addString("TomlBool(" ++ str ++ ")", buffer),
+        "datetime" => {
+          Buffer.addString("TomlDateTime(\"" ++ str ++ "\")", buffer)
+          flags.hasTime = true
+        },
+        "datetime-local" => {
+          Buffer.addString("TomlDateTime(\"" ++ str ++ "\")", buffer)
+          flags.hasTime = true
+        },
+        "date-local" => {
+          Buffer.addString("TomlDateLocal(\"" ++ str ++ "\")", buffer)
+          flags.hasTime = true
+        },
+        "time-local" => {
+          Buffer.addString("TomlTimeLocal(\"" ++ str ++ "\")", buffer)
+          flags.hasTime = true
+        },
+        _ => fail "Invalid Json Toml Conversion",
+      }
+    },
+    JSONObject(jsonItems) => {
+      Buffer.addString("TomlTable([\n", buffer)
+      List.forEach(((jsonKey, jsonValue)) => {
+        Buffer.addString("(", buffer)
+        Buffer.addString("\"" ++ sanitizeGrainString(jsonKey) ++ "\"", buffer)
+        Buffer.addString(",", buffer)
+        jsonToTomlStr(jsonValue, buffer, flags)
+        Buffer.addString("),\n", buffer)
+      }, jsonItems)
+      Buffer.addString("])", buffer)
+    },
+  }
+  void
+}
+let parseJsonToml = (str, flags) => {
+  let json = parse(str)
+  let json = match (json) {
+    Ok(json) => json,
+    Err(err) => fail "Failed To Parse JSON",
+  }
+  let buf = Buffer.make(0)
+  jsonToTomlStr(json, buf, flags)
+  Buffer.toString(buf)
+}
+let buildInValidTest = (grainTestProgram, files) => {
+  List.forEach(((suiteName, suiteTests)) => {
+    // Write Comment Header
+    Buffer.addString("// " ++ suiteName ++ "\n", grainTestProgram)
+    // Write Tests
+    Array.forEach(((inputPath, output)) => {
+      // Read Files
+      let input = readFile(inputPath)
+      // Unwrap
+      let input = match (input) {
+        Ok(input) => Bytes.toString(input),
+        Err(err) => {
+          print(err)
+          fail "Failed To Read Input File"
+        },
+      }
+      // Write Code
+      Buffer.addString("assert Result.isErr(fromString(\"", grainTestProgram)
+      Buffer.addString(sanitizeGrainString(input), grainTestProgram)
+      // Write Output
+      Buffer.addString("\"))", grainTestProgram)
+      // Write Newline
+      Buffer.addString("\n", grainTestProgram)
+    }, suiteTests)
+    Buffer.addString("\n", grainTestProgram)
+    void
+  }, files)
+}
+let buildValidTest = (grainTestProgram, files) => {
+  List.forEach(((suiteName, suiteTests)) => {
+    // Write Comment Header
+    Buffer.addString("// " ++ suiteName ++ "\n", grainTestProgram)
+    // Write Tests
+    Array.forEach(((inputPath, output)) => {
+      // Read Files
+      let input = readFile(inputPath)
+      let output = readFile(output)
+      // Unwrap
+      let input = match (input) {
+        Ok(input) => Bytes.toString(input),
+        Err(err) => {
+          print(err)
+          fail "Failed To Read Input File"
+        },
+      }
+      let output = match (output) {
+        Ok(output) => Bytes.toString(output),
+        Err(err) => fail "Failed To Read Output File",
+      }
+      let flags = { hasTime: false, }
+      let output = parseJsonToml(output, flags)
+      let mut generateCode = true
+      if (flags.hasTime) {
+        generateCode = false
+        Buffer.addString(
+          "// TODO: " ++ inputPath ++ " - Support Dates \n",
+          grainTestProgram
+        )
+      }
+      // Write Code
+      if (generateCode) {
+        Buffer.addString("assert fromString(\"", grainTestProgram)
+        Buffer.addString(sanitizeGrainString(input), grainTestProgram)
+        // Write Output
+        Buffer.addString("\") == Ok(", grainTestProgram)
+        Buffer.addString(output, grainTestProgram)
+        Buffer.addString(")", grainTestProgram)
+      }
+      // Write Newline
+      Buffer.addString("\n", grainTestProgram)
+    }, suiteTests)
+    Buffer.addString("\n", grainTestProgram)
+    void
+  }, files)
+}
+// Config
+let invalidDirectory = "./invalid/"
+let validDirectory = "./valid/"
+// Create File
+let grainTestProgram = Buffer.make(0)
+Buffer.addString(
+  "
+/*
+The MIT License (MIT)
+
+Copyright (c) 2018 TOML authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+// Tests are mostly taken from https://github.com/BurntSushi/toml-test
+
+// This file is generated by ./tests/generate-grain-tests.js
+",
+  grainTestProgram
+)
+Buffer.addString("module TomlTest\n", grainTestProgram)
+Buffer.addString("include \"../toml\"\n", grainTestProgram)
+Buffer.addString("include \"result\"\n", grainTestProgram)
+Buffer.addString("from Toml use { fromString, type Toml }\n", grainTestProgram)
+// Generate Invalid Tests
+let files = getTests(invalidDirectory, "invalid", false)
+Buffer.addString("\n", grainTestProgram)
+Buffer.addString("// Invalid Tests \n", grainTestProgram)
+Buffer.addString("\n", grainTestProgram)
+buildInValidTest(grainTestProgram, files)
+// Generate Valid Tests
+let files = getTests(validDirectory, "valid", true)
+Buffer.addString("\n", grainTestProgram)
+Buffer.addString("// Valid Tests \n", grainTestProgram)
+Buffer.addString("\n", grainTestProgram)
+buildValidTest(grainTestProgram, files)
+// Write Grain Program
+writeFile("./TomlTest.gr", Buffer.toBytes(grainTestProgram))
