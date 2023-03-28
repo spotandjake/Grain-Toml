@@ -16,6 +16,7 @@ from RunTimeString use { toString as runtimeToString }
 from Numbers use { coerceNumberToWasmI32 }
 from DataStructures use { tagSimpleNumber }
 // TODO: Allow Comments Anywhere somehow
+// TODO: Go and validate the parser against the grammar
 // Types
 
 provide enum Toml {
@@ -34,7 +35,6 @@ provide enum Toml {
 provide enum TOMLParseError {
   UnexpectedEndOfInput(String),
   UnexpectedToken(String),
-  InvalidUTF16SurrogatePair(String),
   TomlInvalidTableWrite,
 }
 
@@ -352,7 +352,6 @@ let rec parseKey = parserState => {
   let mut allowMore = true
   let mut key = []
   while (!isAtEndOfInput(parserState)) {
-    // TODO: Parse Key until we hit invalid key rather then hit an end char, let parent deal with validation
     match (parserState.currentCodePoint) {
       // '
       0x27 when allowMore => {
@@ -384,10 +383,6 @@ let rec parseKey = parserState => {
         key = [Buffer.toString(parserState.bufferParse), ...key]
         Buffer.clear(parserState.bufferParse)
       },
-      // =
-      0x3D => break,
-      // [
-      0x5D => break,
       // Handle bare Key
       c when isValidBareKeyChar(c) && allowMore => {
         next(parserState)
@@ -399,11 +394,7 @@ let rec parseKey = parserState => {
         allowMore = false
       },
       // Invalid Key Value
-      c => {
-        let detail = "expected one of the following chars A-Za-z0-9_-, found " ++
-          formatCodePointOrEOF(c)
-        return Err(buildUnexpectedTokenError(parserState, detail))
-      },
+      c => break,
     }
   }
   key = [Buffer.toString(parserState.bufferParse), ...key]
@@ -677,6 +668,11 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
           if (parserState.currentCodePoint == 0x22) {
             next(parserState)
             isMultiLine = true
+            while (parserState.currentCodePoint == 0x22) {
+              next(parserState)
+              Buffer.addChar('"', strBuffer)
+              void
+            }
           } else {
             break
           }
@@ -686,8 +682,14 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
               next(parserState)
               if (parserState.currentCodePoint == 0x22) {
                 next(parserState)
+                while (parserState.currentCodePoint == 0x22) {
+                  next(parserState)
+                  Buffer.addChar('"', strBuffer)
+                  void
+                }
                 break
               } else {
+                Buffer.addChar('"', strBuffer)
                 Buffer.addChar('"', strBuffer)
               }
             } else {
@@ -886,13 +888,18 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
   let mut isMultiLine = false
   while (!isAtEndOfInput(parserState)) {
     match (parserState.currentCodePoint) {
-      0x27 => { // '"'
+      0x27 => { // '''
         next(parserState)
         if (!hasHitContent) {
           // TODO: I do not know how we should handle if isMultiLine is already true
           if (parserState.currentCodePoint == 0x27) {
             next(parserState)
             isMultiLine = true
+            while (parserState.currentCodePoint == 0x27) {
+              next(parserState)
+              Buffer.addChar('\'', strBuffer)
+              void
+            }
           } else {
             break
           }
@@ -902,8 +909,14 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
               next(parserState)
               if (parserState.currentCodePoint == 0x27) {
                 next(parserState)
+                while (parserState.currentCodePoint == 0x27) {
+                  next(parserState)
+                  Buffer.addChar('\'', strBuffer)
+                  void
+                }
                 break
               } else {
+                Buffer.addChar('\'', strBuffer)
                 Buffer.addChar('\'', strBuffer)
               }
             } else {
@@ -915,7 +928,6 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
         }
       },
       // Invalid Chars
-      // TODO: Determine if these are still the correct invalid chars
       c when (
         c >= 0x00 && c <= 0x0008 || c >= 0x000A && c <= 0x001F || c == 0x007F
       ) => {
@@ -942,7 +954,6 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
   return Ok(TomlString(Buffer.toString(strBuffer)))
 },
 parseArrayLiteral = parserState => {
-  // TODO: Ensure that this conforms to the toml spec
   match (expectCodePointAndAdvance(0x5B, parserState)) {
     // '['
     Some(e) => return Err(e),
@@ -1035,7 +1046,6 @@ parseTableLiteral = parserState => {
       Err(err) => return Err(err),
     }
     // TODO: Do Not Allow Duplicates
-    // TODO: Look into weather . keys are allowed
     inlineTable = match (writeTable(key, value, inlineTable)) {
       Ok(table) => table,
       Err(err) => return Err(err),
@@ -1068,11 +1078,7 @@ parseTableLiteral = parserState => {
     }
   }
   // Return Table
-  match (inlineTable) {
-    TomlTable(table) => return Ok(TomlTable(table)),
-    // This is literally impossible
-    _ => fail "Impossible3",
-  }
+  return Ok(inlineTable)
 },
 parseLiteral = parserState => {
   skipSpace(parserState)
@@ -1149,13 +1155,13 @@ let parseFile = parserState => {
   // Parse The File
   let mut inComment = false
   while (!isAtEndOfInput(parserState)) {
-    // TODO: Implement Parsing, Parse Table Header, Parse Array Header
     match (parserState.currentCodePoint) {
       c when inComment => {
         next(parserState)
         if (isInterTokenNewLine(c)) inComment = false
       },
       // [
+      // TODO: Handle Array Header
       0x5B =>
         match (parseTableHeader(parserState)) {
           Err(err) => return Err(err),
@@ -1169,10 +1175,14 @@ let parseFile = parserState => {
         next(parserState)
         inComment = true
       },
-      c when isInterTokenWhiteSpace(c) => {
-        // TODO: if c is a newline break the current table
-        skipWhiteSpace(parserState)
+      c when isInterTokenNewLine(c) => {
+        next(parserState)
+        if (isInterTokenNewLine(parserState.currentCodePoint)) {
+          rootKey = []
+        }
+        skipNewLine(parserState)
       },
+      c when isInterTokenSpace(c) => skipSpace(parserState),
       _ => {
         match (parseKeyValue(parserState)) {
           Err(err) => return Err(err),
@@ -1187,11 +1197,7 @@ let parseFile = parserState => {
     }
   }
   // Return Our Table
-  match (rootTable) {
-    TomlTable(table) => return Ok(TomlTable(table)),
-    // This is literally impossible
-    _ => fail "Impossible4",
-  }
+  return Ok(rootTable)
 }
 // Entry
 provide let fromString: String -> Result<Toml, TOMLParseError> =
