@@ -1,10 +1,19 @@
 # Grain-Toml
 This repo contains a very basic toml parser written in grain-lang.
 
+Feel free to use this in your project or as inspiration for a better toml-parser.
+
 # To Be Done
-This library is by no means completes
-## Tests
+This library is by no means completes, Some Notable Things Missings Are
++ Array Tables
++ Date Support
++ Validation
+  + Validate Keys Only Occur Once
+  
+## Completed
 + [ ] Parsing
+  + [ ] Array tables
+  + [x] Tables
   + [ ] Expressions
     + [x] Parse Comments
       + [x] Parsing Comments
@@ -14,19 +23,19 @@ This library is by no means completes
     + [x] Parse Tables
     + [x] Parse Array Tables
     + [x] Parse keys such as `a.b` in Table headers and Key Value Pairs
-    + [ ] Ensure keys are valid
-    + [ ] Properly Parse String Keys
-    + [ ] Properly handle empty string keys
+    + [x] Ensure keys are valid
+    + [x] Properly Parse String Keys
+    + [x] Properly handle empty string keys
     + [ ] Verify things are on newlines
   + [ ] Toml Values
     + [x] Booleans
-    + [ ] Strings
-      + [ ] Basic Strings
+    + [x] Strings
+      + [x] Basic Strings
         + [x] Parsing
-        + [ ] Normalizing
-      + [ ] Basic Multiline Strings
+        + [x] Normalizing
+      + [x] Basic Multiline Strings
         + [x] Parsing
-        + [ ] Trimming
+        + [x] Trimming
       + [x] Literal Strings
         + [x] Parsing
       + [x] Literal Multiline Strings
