@@ -309,7 +309,96 @@ key = \"value\" # This is a comment at the end of a line
 assert fromString("# single comment without any eol characters") ==
   Ok(TomlTable([]))
 assert fromString("# ~  ÿ ퟿  ￿ 𐀀 􏿿") == Ok(TomlTable([]))
-// TODO: Comment.tricky
+assert fromString(
+  "
+[section]#attached comment
+#[notsection]
+one = \"11\"#cmt
+two = \"22#\"
+three = '#'
+
+four = \"\"\"# no comment
+# nor this
+#also not comment\"\"\"#is_comment
+
+five = 5.5#66
+six = 6#7
+8 = \"eight\"
+#nine = 99
+ten = 10e2#1
+eleven = 1.11e1#23
+
+[\"hash#tag\"]
+\"#!\" = \"hash bang\"
+arr3 = [ \"#\", '#', \"\"\"###\"\"\" ]
+arr4 = [ 1,# 9, 9,
+2#,9
+,#9
+3#]
+,4]
+arr5 = [[[[#[\"#\"],
+[\"#\"]]]]#]
+]
+tbl1 = { \"#\" = '}#'}#}}
+
+
+
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "section",
+          TomlTable(
+            [
+              ("one", TomlString("11")),
+              ("two", TomlString("22#")),
+              ("three", TomlString("#")),
+              (
+                "four",
+                TomlString("# no comment\n# nor this\n#also not comment"),
+              ),
+              ("five", TomlFloat(5.5)),
+              ("six", TomlInt(6)),
+              ("8", TomlString("eight")),
+              ("ten", TomlFloat(1000.0)),
+              ("eleven", TomlFloat(11.1)),
+            ]
+          ),
+        ),
+        (
+          "hash#tag",
+          TomlTable(
+            [
+              ("#!", TomlString("hash bang")),
+              (
+                "arr3",
+                TomlArray(
+                  [TomlString("#"), TomlString("#"), TomlString("###")]
+                ),
+              ),
+              (
+                "arr4",
+                TomlArray([TomlInt(1), TomlInt(2), TomlInt(3), TomlInt(4)]),
+              ),
+              (
+                "arr5",
+                TomlArray(
+                  [
+                    TomlArray(
+                      [TomlArray([TomlArray([TomlArray([TomlString("#")])])])]
+                    ),
+                  ]
+                ),
+              ),
+              ("tbl1", TomlTable([("#", TomlString("}#"))])),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 // TODO: DateTime
 // Float
 assert fromString(
@@ -802,7 +891,56 @@ b3 = 0b00000
       ]
     )
   )
-// TODO: key
+// Key
+assert fromString(
+  "
+alpha = \"a\"
+123 = \"num\"
+000111 = \"leading\"
+10e3 = \"false float\"
+one1two2 = \"mixed\"
+with-dash = \"dashed\"
+under_score = \"___\"
+34-11 = 23
+
+[2018_10]
+001 = 1
+
+[a-a-a]
+_ = false
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("alpha", TomlString("a")),
+        ("123", TomlString("num")),
+        ("000111", TomlString("leading")),
+        ("10e3", TomlString("false float")),
+        ("one1two2", TomlString("mixed")),
+        ("with-dash", TomlString("dashed")),
+        ("under_score", TomlString("___")),
+        ("34-11", TomlInt(23)),
+        ("2018_10", TomlTable([("001", TomlInt(1))])),
+        ("a-a-a", TomlTable([("_", TomlBool(false))])),
+      ]
+    )
+  )
+// TODO: key.case-sensitive
+// TODO: key.dotted-empty
+// TODO: key.dotted
+// TODO: key.empty
+// TODO: key.equals-nospace
+// TODO: key.escapes
+// TODO: key.numeric-dotted
+// TODO: key.numeric
+// TODO: key.quoted-dots
+// TODO: key.quotes-unicode
+// TODO: key.space
+// TODO: key.special-chars
+// TODO: key.special-word
+// TODO: key.unicode
+
 // TODO: spec
 // string
 assert fromString("
@@ -948,7 +1086,6 @@ equivalent_three = \"\"\"\\
   )
 assert fromString("0=\"\"\"\\\r\n\"\"\"") ==
   Ok(TomlTable([("0", TomlString(""))]))
-// TODO: String.multiline-qoutes - Improve String Parsing
 assert fromString(
   "
 # Make sure that quotes inside multiline strings are allowed, including right
@@ -1093,19 +1230,6 @@ lit_nl_uni = 'val\\ue'
       ]
     )
   )
-// TODO: FIXME - Look into why ud800 is invalid
-// assert fromString("
-// escaped_string = \"\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff\"
-// not_escaped_string = '\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff'
-
-// basic_string = \"~  ÿ ퟿  ￿ 𐀀 􏿿\"
-// literal_string = '~  ÿ ퟿  ￿ 𐀀 􏿿'
-// ") == Ok(TomlTable([
-//   ("escaped_string", TomlTable("\u0000 \b \f A \u007f \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff")),
-//   ("not_escaped_string", TomlTable("\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff")),
-//   ("basic_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff")),
-//   ("literal_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff"))
-// ]))
 assert fromString(
   "
 # Single ' should be allowed.
