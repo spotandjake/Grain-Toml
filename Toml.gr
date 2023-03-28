@@ -654,7 +654,6 @@ parseNumberLiteral = parserState => {
   }
 },
 parseBasicStringLiteral = (parserState, allowMultiLine) => {
-  next(parserState)
   let strBuffer = parserState.bufferParse
   Buffer.clear(strBuffer)
   let mut hasHitContent = false
@@ -662,41 +661,29 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
   while (!isAtEndOfInput(parserState)) {
     match (parserState.currentCodePoint) {
       0x22 => { // '"'
-        next(parserState)
-        if (!hasHitContent) {
-          // TODO: I do not know how we should handle if isMultiLine is already true
-          if (parserState.currentCodePoint == 0x22) {
-            next(parserState)
-            isMultiLine = true
-            while (parserState.currentCodePoint == 0x22) {
-              next(parserState)
-              Buffer.addChar('"', strBuffer)
-              void
-            }
-          } else {
-            break
-          }
-        } else {
+        let mut quoteCount = 0
+        while (parserState.currentCodePoint == 0x22) {
+          next(parserState)
+          quoteCount += 1
+        }
+        if (quoteCount == 2 && !hasHitContent) {
+          break
+        } else if (quoteCount >= 6 && !hasHitContent) {
+          break
+        } else if (quoteCount == 1) {
           if (isMultiLine) {
-            if (parserState.currentCodePoint == 0x22) {
-              next(parserState)
-              if (parserState.currentCodePoint == 0x22) {
-                next(parserState)
-                while (parserState.currentCodePoint == 0x22) {
-                  next(parserState)
-                  Buffer.addChar('"', strBuffer)
-                  void
-                }
-                break
-              } else {
-                Buffer.addChar('"', strBuffer)
-                Buffer.addChar('"', strBuffer)
-              }
-            } else {
-              Buffer.addChar('"', strBuffer)
-            }
+            Buffer.addChar('"', strBuffer)
           } else {
-            break
+            if (hasHitContent) break
+          }
+        } else if (quoteCount >= 3) {
+          for (let mut i = 3; i < quoteCount; i += 1) {
+            Buffer.addChar('"', strBuffer)
+          }
+          if (hasHitContent) break else isMultiLine = true
+        } else {
+          for (let mut i = 0; i < quoteCount; i += 1) {
+            Buffer.addChar('"', strBuffer)
           }
         }
       },
@@ -881,7 +868,6 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
   return Ok(TomlString(Buffer.toString(strBuffer)))
 },
 parseLitStringLiteral = (parserState, allowMultiLine) => {
-  next(parserState)
   let strBuffer = parserState.bufferParse
   Buffer.clear(strBuffer)
   let mut hasHitContent = false
@@ -889,41 +875,29 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
   while (!isAtEndOfInput(parserState)) {
     match (parserState.currentCodePoint) {
       0x27 => { // '''
-        next(parserState)
-        if (!hasHitContent) {
-          // TODO: I do not know how we should handle if isMultiLine is already true
-          if (parserState.currentCodePoint == 0x27) {
-            next(parserState)
-            isMultiLine = true
-            while (parserState.currentCodePoint == 0x27) {
-              next(parserState)
-              Buffer.addChar('\'', strBuffer)
-              void
-            }
-          } else {
-            break
-          }
-        } else {
+        let mut quoteCount = 0
+        while (parserState.currentCodePoint == 0x27) {
+          next(parserState)
+          quoteCount += 1
+        }
+        if (quoteCount == 2 && !hasHitContent) {
+          break
+        } else if (quoteCount >= 6 && !hasHitContent) {
+          break
+        } else if (quoteCount == 1) {
           if (isMultiLine) {
-            if (parserState.currentCodePoint == 0x27) {
-              next(parserState)
-              if (parserState.currentCodePoint == 0x27) {
-                next(parserState)
-                while (parserState.currentCodePoint == 0x27) {
-                  next(parserState)
-                  Buffer.addChar('\'', strBuffer)
-                  void
-                }
-                break
-              } else {
-                Buffer.addChar('\'', strBuffer)
-                Buffer.addChar('\'', strBuffer)
-              }
-            } else {
-              Buffer.addChar('\'', strBuffer)
-            }
+            Buffer.addChar('\'', strBuffer)
           } else {
-            break
+            if (hasHitContent) break
+          }
+        } else if (quoteCount >= 3) {
+          for (let mut i = 3; i < quoteCount; i += 1) {
+            Buffer.addChar('\'', strBuffer)
+          }
+          if (hasHitContent) break else isMultiLine = true
+        } else {
+          for (let mut i = 0; i < quoteCount; i += 1) {
+            Buffer.addChar('\'', strBuffer)
           }
         }
       },
