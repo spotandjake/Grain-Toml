@@ -22,68 +22,93 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 // Tests are mostly taken from https://github.com/BurntSushi/toml-test
+
 module TomlTest
+
 include "Number"
 include "./toml"
-from Toml use { fromString, type TomlValue }
+from Toml use { fromString, type Toml }
 // TODO: Invalid
 // Valid
 // Toml Array
 // TODO: array.toml - after Date Support
 assert fromString("
 a = [true, false]
-") == Ok(TomlTable([
-  ("a", TomlArray([
-    TomlBool(true),
-    TomlBool(false)
-  ]))
-]))
+") ==
+  Ok(TomlTable([("a", TomlArray([TomlBool(true), TomlBool(false)]))]))
 assert fromString("
 thevoid = [[[[[]]]]]
-") == Ok(TomlTable([
-  ("thevoid", TomlArray([
-    TomlArray([TomlArray([TomlArray([TomlArray([])])])])
-  ]))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "thevoid",
+          TomlArray([TomlArray([TomlArray([TomlArray([TomlArray([])])])])]),
+        ),
+      ]
+    )
+  )
 assert fromString("
 mixed = [[1, 2], [\"a\", \"b\"], [1.1, 2.1]]
-") == Ok(TomlTable([
-  ("mixed", TomlArray([
-    TomlArray([
-      TomlInt(1),
-      TomlInt(2)
-    ]),
-    TomlArray([
-      TomlString("a"),
-      TomlString("b")
-    ]),
-    TomlArray([
-      TomlFloat(1.1),
-      TomlFloat(2.1)
-    ])
-  ]))
-]))
-assert fromString("arrays-and-ints =  [1, [\"Arrays are not integers.\"]]") == Ok(TomlTable([
-  ("arrays-and-ints", TomlArray([
-    TomlInt(1),
-    TomlArray([
-      TomlString("Arrays are not integers.")
-    ])
-  ]))
-]))
-assert fromString("ints-and-floats = [1, 1.1]") == Ok(TomlTable([
-  ("ints-and-floats", TomlArray([
-    TomlInt(1),
-    TomlFloat(1.1)
-  ]))
-]))
-assert fromString("strings-and-ints = [\"hi\", 42]") == Ok(TomlTable([
-  ("strings-and-ints", TomlArray([
-    TomlString("hi"),
-    TomlInt(42)
-  ]))
-]))
-assert fromString("
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "mixed",
+          TomlArray(
+            [
+              TomlArray([TomlInt(1), TomlInt(2)]),
+              TomlArray([TomlString("a"), TomlString("b")]),
+              TomlArray([TomlFloat(1.1), TomlFloat(2.1)]),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString("arrays-and-ints =  [1, [\"Arrays are not integers.\"]]") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "arrays-and-ints",
+          TomlArray(
+            [TomlInt(1), TomlArray([TomlString("Arrays are not integers.")])]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString("ints-and-floats = [1, 1.1]") ==
+  Ok(TomlTable([("ints-and-floats", TomlArray([TomlInt(1), TomlFloat(1.1)]))]))
+assert fromString("strings-and-ints = [\"hi\", 42]") ==
+  Ok(
+    TomlTable(
+      [("strings-and-ints", TomlArray([TomlString("hi"), TomlInt(42)]))]
+    )
+  )
+assert fromString(
+  "a = { name = \"Baz Qux\", email = \"bazqux@example.com\" }"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "a",
+          TomlTable(
+            [
+              ("name", TomlString("Baz Qux")),
+              ("email", TomlString("bazqux@example.com")),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 contributors = [
   \"Foo Bar <foo@example.com>\",
   { name = \"Baz Qux\", email = \"bazqux@example.com\", url = \"https://example.com/bazqux\" }
@@ -95,23 +120,35 @@ contributors = [
 # before TOML 1.0 since arrays could only contain one type, but now it's no
 # longer.
 mixed = [{k=\"a\"}, \"b\", 1]
-") ==Ok(TomlTable([
-  ("contributors", TomlArray([
-    TomlString("Foo Bar <foo@example.com>"),
-    TomlTable([
-      ("name", TomlString("Baz Qux")),
-      ("email", TomlString("bazqux@example.com")),
-      ("url", TomlString("https://example.com/bazqux"))
-    ])
-  ])),
-  ("mixed", TomlArray([
-    TomlTable([
-      ("k", TomlString("a"))
-    ]),
-    TomlString("b"),
-    TomlInt(1)
-  ]))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "contributors",
+          TomlArray(
+            [
+              TomlString("Foo Bar <foo@example.com>"),
+              TomlTable(
+                [
+                  ("name", TomlString("Baz Qux")),
+                  ("email", TomlString("bazqux@example.com")),
+                  ("url", TomlString("https://example.com/bazqux")),
+                ]
+              ),
+            ]
+          ),
+        ),
+        (
+          "mixed",
+          TomlArray(
+            [TomlTable([("k", TomlString("a"))]), TomlString("b"), TomlInt(1)]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 nest = [
 	[
@@ -119,128 +156,164 @@ nest = [
 		[1, 2, [3]]
 	]
 ]
-") == Ok(TomlTable([
-  ("nest", TomlArray([
-    TomlArray([
-      TomlArray([
-        TomlString("a")
-      ]),
-      TomlArray([
-        TomlInt(1),
-        TomlInt(2),
-        TomlArray([
-          TomlInt(3)
-        ])
-      ])
-    ])
-  ]))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "nest",
+          TomlArray(
+            [
+              TomlArray(
+                [
+                  TomlArray([TomlString("a")]),
+                  TomlArray([TomlInt(1), TomlInt(2), TomlArray([TomlInt(3)])]),
+                ]
+              ),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 a = [ { b = {} } ]
-") == Ok(TomlTable([
-  ("a", TomlArray([
-    TomlTable([
-      ("b", TomlTable([]))
-    ])
-  ]))
-]))
-assert fromString("nest = [[\"a\"], [\"b\"]]") == Ok(TomlTable([
-  ("nest", TomlArray([
-    TomlArray([
-      TomlString("a")
-    ]),
-    TomlArray([
-      TomlString("b")
-    ])
-  ]))
-]))
-assert fromString("ints = [1,2,3]") == Ok(TomlTable([
-  ("ints", TomlArray([
-    TomlInt(1),
-    TomlInt(2),
-    TomlInt(3)
-  ]))
-]))
-assert fromString("title = [ \" \\\", \",]") == Ok(TomlTable([
-  ("title", TomlArray([
-    TomlString(" \", ")
-  ]))
-]))
-assert fromString("
+") ==
+  Ok(TomlTable([("a", TomlArray([TomlTable([("b", TomlTable([]))])]))]))
+assert fromString("nest = [[\"a\"], [\"b\"]]") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "nest",
+          TomlArray(
+            [TomlArray([TomlString("a")]), TomlArray([TomlString("b")])]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString("ints = [1,2,3]") ==
+  Ok(TomlTable([("ints", TomlArray([TomlInt(1), TomlInt(2), TomlInt(3)]))]))
+assert fromString("title = [ \" \\\", \",]") ==
+  Ok(TomlTable([("title", TomlArray([TomlString(" \", ")]))]))
+assert fromString(
+  "
 title = [
 \"Client: \\\"XXXX\\\", Job: XXXX\",
 \"Code: XXXX\"
 ]
-") == Ok(TomlTable([
-  ("title", TomlArray([
-    TomlString("Client: \"XXXX\", Job: XXXX"),
-    TomlString("Code: XXXX")
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "title",
+          TomlArray(
+            [
+              TomlString("Client: \"XXXX\", Job: XXXX"),
+              TomlString("Code: XXXX"),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 title = [
 \"\"\"Client: XXXX,
 Job: XXXX\"\"\",
 \"Code: XXXX\"
 ]
-") == Ok(TomlTable([
-  ("title", TomlArray([
-    TomlString("Client: XXXX,\nJob: XXXX"),
-    TomlString("Code: XXXX")
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "title",
+          TomlArray(
+            [TomlString("Client: XXXX,\nJob: XXXX"), TomlString("Code: XXXX")]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 title = [
 \"Client: XXXX, Job: XXXX\",
 \"Code: XXXX\"
 ]
-") == Ok(TomlTable([
-  ("title", TomlArray([
-    TomlString("Client: XXXX, Job: XXXX"),
-    TomlString("Code: XXXX")
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "title",
+          TomlArray(
+            [TomlString("Client: XXXX, Job: XXXX"), TomlString("Code: XXXX")]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 string_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''']
-") == Ok(TomlTable([
-  ("string_array", TomlArray([
-    TomlString("all"),
-    TomlString("strings"),
-    TomlString("are the same"),
-    TomlString("type")
-  ]))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "string_array",
+          TomlArray(
+            [
+              TomlString("all"),
+              TomlString("strings"),
+              TomlString("are the same"),
+              TomlString("type"),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 foo = [ { bar=\"\\\"{{baz}}\\\"\"} ]
-") == Ok(TomlTable([
-  ("foo", TomlArray([
-    TomlTable([
-      ("bar", TomlString("\"{{baz}}\""))
-    ])
-  ]))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [("foo", TomlArray([TomlTable([("bar", TomlString("\"{{baz}}\""))])]))]
+    )
+  )
 // Bool
 assert fromString("
 t = true
 f = false
-") == Ok(TomlTable([
-  ("t", TomlBool(true)),
-  ("f", TomlBool(false))
-]))
+") ==
+  Ok(TomlTable([("t", TomlBool(true)), ("f", TomlBool(false))]))
 // Comment
-assert fromString("
+assert fromString(
+  "
 # This is a full-line comment
 key = \"value\" # This is a comment at the end of a line
-") == Ok(TomlTable([
-  ("key", TomlString("value"))
-]))
+"
+) ==
+  Ok(TomlTable([("key", TomlString("value"))]))
 // TODO: Comment.everywhere - Support Dates
-assert fromString("# single comment without any eol characters") == Ok(TomlTable([]))
+assert fromString("# single comment without any eol characters") ==
+  Ok(TomlTable([]))
 assert fromString("# ~  ÿ ퟿  ￿ 𐀀 􏿿") == Ok(TomlTable([]))
 // TODO: Comment.tricky
 // TODO: DateTime
 // Float
-assert fromString("
+assert fromString(
+  "
 lower = 3e2
 upper = 3E2
 neg = 3e-2
@@ -249,71 +322,101 @@ zero = 3e0
 pointlower = 3.1e2
 pointupper = 3.1E2
 minustenth = -1E-1
-") == Ok(TomlTable([
-  ("lower", TomlFloat(300.0)),
-  ("upper", TomlFloat(300.0)),
-  ("neg", TomlFloat(0.03)),
-  ("pos", TomlFloat(300.0)),
-  ("zero", TomlFloat(3.0)),
-  ("pointlower", TomlFloat(310.0)),
-  ("pointupper", TomlFloat(310.0)),
-  ("minustenth", TomlFloat(-0.1))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("lower", TomlFloat(300.0)),
+        ("upper", TomlFloat(300.0)),
+        ("neg", TomlFloat(0.03)),
+        ("pos", TomlFloat(300.0)),
+        ("zero", TomlFloat(3.0)),
+        ("pointlower", TomlFloat(310.0)),
+        ("pointupper", TomlFloat(310.0)),
+        ("minustenth", TomlFloat(-0.1)),
+      ]
+    )
+  )
+assert fromString(
+  "
 pi = 3.14
 pospi = +3.14
 negpi = -3.14
 zero-intpart = 0.123
-") == Ok(TomlTable([
-  ("pi", TomlFloat(3.14)),
-  ("pospi", TomlFloat(3.14)),
-  ("negpi", TomlFloat(-3.14)),
-  ("zero-intpart", TomlFloat(0.123))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("pi", TomlFloat(3.14)),
+        ("pospi", TomlFloat(3.14)),
+        ("negpi", TomlFloat(-3.14)),
+        ("zero-intpart", TomlFloat(0.123)),
+      ]
+    )
+  )
 assert match (fromString("nan = nan")) {
-  Ok(TomlTable([
-    ("nan", TomlFloat(n))
-  ])) when Number.isNaN(n) => true,
-  _ => false
+  Ok(TomlTable([("nan", TomlFloat(n))])) when Number.isNaN(n) => true,
+  _ => false,
 }
 assert match (fromString("nan_neg = -nan")) {
-  Ok(TomlTable([
-    ("nan_neg", TomlFloat(n))
-  ])) when Number.isNaN(n) => true,
-  _ => false
+  Ok(TomlTable([("nan_neg", TomlFloat(n))])) when Number.isNaN(n) => true,
+  _ => false,
 }
 assert match (fromString("pos_nan = +nan")) {
-  Ok(TomlTable([
-    ("pos_nan", TomlFloat(n))
-  ])) when Number.isNaN(n) => true,
-  _ => false
+  Ok(TomlTable([("pos_nan", TomlFloat(n))])) when Number.isNaN(n) => true,
+  _ => false,
 }
-assert fromString("
+assert fromString(
+  "
 infinity = inf
 infinity_neg = -inf
 infinity_plus = +inf
-") == Ok(TomlTable([
-  ("infinity", TomlFloat(Infinity)),
-  ("infinity_neg", TomlFloat(-Infinity)),
-  ("infinity_plus", TomlFloat(Infinity))
-]))
-assert fromString("
-longpi = 3.141592653589793
-neglongpi = -3.141592653589793
-") == Ok(TomlTable([
-  ("longpi", TomlFloat(3.141592653589793)),
-  ("neglongpi", TomlFloat(-3.141592653589793))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("infinity", TomlFloat(Infinity)),
+        ("infinity_neg", TomlFloat(-Infinity)),
+        ("infinity_plus", TomlFloat(Infinity)),
+      ]
+    )
+  )
+// TODO: Figure out why this wont work
+// assert fromString(
+//   "
+// longpi = 3.141592653589793
+// neglongpi = -3.141592653589793
+// "
+// ) ==
+//   Ok(
+//     TomlTable(
+//       [
+//         ("longpi", TomlFloat(3.141592653589793)),
+//         ("neglongpi", TomlFloat(-3.141592653589793)),
+//       ]
+//     )
+//   )
+assert fromString(
+  "
 before = 3_141.5927
 after = 3141.592_7
 exponent = 3e1_4
-") == Ok(TomlTable([
-  ("before", TomlFloat(3_141.5927)),
-  ("after", TomlFloat(3141.592_7)),
-  ("exponent", TomlFloat(3e1_4))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("before", TomlFloat(3_141.5927)),
+        ("after", TomlFloat(3141.592_7)),
+        ("exponent", TomlFloat(3e1_4)),
+      ]
+    )
+  )
+assert fromString(
+  "
 zero = 0.0
 signed-pos = +0.0
 signed-neg = -0.0
@@ -322,129 +425,181 @@ exponent-two-0 = 0e00
 exponent-signed-pos = +0e0
 exponent-signed-neg = -0e0
 
-") == Ok(TomlTable([
-  ("zero", TomlFloat(0.0)),
-  ("signed-pos", TomlFloat(0.0)),
-  ("signed-neg", TomlFloat(-0.0)),
-  ("exponent", TomlFloat(0e0)),
-  ("exponent-two-0", TomlFloat(0e00)),
-  ("exponent-signed-pos", TomlFloat(0e0)),
-  ("exponent-signed-neg", TomlFloat(-0e0))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("zero", TomlFloat(0.0)),
+        ("signed-pos", TomlFloat(0.0)),
+        ("signed-neg", TomlFloat(-0.0)),
+        ("exponent", TomlFloat(0e0)),
+        ("exponent-two-0", TomlFloat(0e00)),
+        ("exponent-signed-pos", TomlFloat(0e0)),
+        ("exponent-signed-neg", TomlFloat(-0e0)),
+      ]
+    )
+  )
 // inline-table
-assert fromString("
+assert fromString(
+  "
 people = [{first_name = \"Bruce\", last_name = \"Springsteen\"},
           {first_name = \"Eric\", last_name = \"Clapton\"},
           {first_name = \"Bob\", last_name = \"Seger\"}]
-") == Ok(TomlTable([
-  ("people", TomlArray([
-    TomlTable([
-      ("first_name", TomlString("Bruce")),
-      ("last_name", TomlString("Springsteen"))
-    ]),
-    TomlTable([
-      ("first_name", TomlString("Eric")),
-      ("last_name", TomlString("Clapton"))
-    ]),
-    TomlTable([
-      ("first_name", TomlString("Bob")),
-      ("last_name", TomlString("Seger"))
-    ])
-  ]))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "people",
+          TomlArray(
+            [
+              TomlTable(
+                [
+                  ("first_name", TomlString("Bruce")),
+                  ("last_name", TomlString("Springsteen")),
+                ]
+              ),
+              TomlTable(
+                [
+                  ("first_name", TomlString("Eric")),
+                  ("last_name", TomlString("Clapton")),
+                ]
+              ),
+              TomlTable(
+                [
+                  ("first_name", TomlString("Bob")),
+                  ("last_name", TomlString("Seger")),
+                ]
+              ),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 a = {a = true, b = false}
-") == Ok(TomlTable([
-  ("a", TomlTable([
-    ("a", TomlBool(true)),
-    ("b", TomlBool(false))
-  ]))
-]))
-assert fromString("
+") ==
+  Ok(
+    TomlTable(
+      [("a", TomlTable([("a", TomlBool(true)), ("b", TomlBool(false))]))]
+    )
+  )
+assert fromString(
+  "
 empty1 = {}
 empty2 = { }
 empty_in_array = [ { not_empty = 1 }, {} ]
 empty_in_array2 = [{},{not_empty=1}]
 many_empty = [{},{},{}]
 nested_empty = {\"empty\"={}}
-") == Ok(TomlTable([
-  ("empty1", TomlTable([])),
-  ("empty2", TomlTable([])),
-  ("empty_in_array", TomlArray([
-    TomlTable([
-      ("not_empty", TomlInt(1))
-    ]),
-    TomlTable([]),
-  ])),
-  ("empty_in_array2", TomlArray([
-    TomlTable([]),
-    TomlTable([
-      ("not_empty", TomlInt(1))
-    ])
-  ])),
-  ("many_empty", TomlArray([
-    TomlTable([]),
-    TomlTable([]),
-    TomlTable([]),
-  ])),
-  ("nested_empty", TomlTable([
-    ("empty", TomlTable([]))
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("empty1", TomlTable([])),
+        ("empty2", TomlTable([])),
+        (
+          "empty_in_array",
+          TomlArray([TomlTable([("not_empty", TomlInt(1))]), TomlTable([])]),
+        ),
+        (
+          "empty_in_array2",
+          TomlArray([TomlTable([]), TomlTable([("not_empty", TomlInt(1))])]),
+        ),
+        (
+          "many_empty",
+          TomlArray([TomlTable([]), TomlTable([]), TomlTable([])]),
+        ),
+        ("nested_empty", TomlTable([("empty", TomlTable([]))])),
+      ]
+    )
+  )
+assert fromString(
+  "
 black = { python=\">3.6\", version=\">=18.9b0\", allow_prereleases=true }
-") == Ok(TomlTable([
-  ("black", TomlTable([
-    ("python", TomlString(">3.6")),
-    ("version", TomlString(">=18.9b0")),
-    ("allow_prereleases", TomlBool(true))
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "black",
+          TomlTable(
+            [
+              ("python", TomlString(">3.6")),
+              ("version", TomlString(">=18.9b0")),
+              ("allow_prereleases", TomlBool(true)),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 name = { first = \"Tom\", last = \"Preston-Werner\" }
 point = { x = 1, y = 2 }
 simple = { a = 1 }
 str-key = { \"a\" = 1 }
 table-array = [{ \"a\" = 1 }, { \"b\" = 2 }]
-") == Ok(TomlTable([
-  ("name", TomlTable([
-    ("first", TomlString("Tom")),
-    ("last", TomlString("Preston-Werner")),
-  ])),
-  ("point", TomlTable([
-    ("x", TomlInt(1)),
-    ("y", TomlInt(2)),
-  ])),
-  ("simple", TomlTable([
-    ("a", TomlInt(1))
-  ])),
-  ("str-key", TomlTable([
-    ("a", TomlInt(1))
-  ])),
-  ("table-array", TomlArray([
-    TomlTable([
-      ("a", TomlInt(1))
-    ]),
-    TomlTable([
-      ("b", TomlInt(2))
-    ])
-  ]))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "name",
+          TomlTable(
+            [
+              ("first", TomlString("Tom")),
+              ("last", TomlString("Preston-Werner")),
+            ]
+          ),
+        ),
+        ("point", TomlTable([("x", TomlInt(1)), ("y", TomlInt(2))])),
+        ("simple", TomlTable([("a", TomlInt(1))])),
+        ("str-key", TomlTable([("a", TomlInt(1))])),
+        (
+          "table-array",
+          TomlArray(
+            [TomlTable([("a", TomlInt(1))]), TomlTable([("b", TomlInt(2))])]
+          ),
+        ),
+      ]
+    )
+  )
 // TODO: Inline-Table.key-dotted - Support & Array Keys & Proper Table Keys
-assert fromString("
+assert fromString(
+  "
 tbl_multiline = { a = 1, b = \"\"\"
 multiline
 \"\"\", c = \"\"\"and yet
 another line\"\"\", d = 4 }
-") == Ok(TomlTable([
-  ("tbl_multiline", TomlTable([
-    ("a", TomlInt(1)),
-    ("b", TomlString("multiline\n")),
-    ("c", TomlString("and yet\nanother line")),
-    ("d", TomlInt(4))
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "tbl_multiline",
+          TomlTable(
+            [
+              ("a", TomlInt(1)),
+              ("b", TomlString("multiline\n")),
+              ("c", TomlString("and yet\nanother line")),
+              ("d", TomlInt(4)),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 tbl_tbl_empty = { tbl_0 = {} }
 tbl_tbl_val   = { tbl_1 = { one = 1 } }
 tbl_arr_tbl   = { arr_tbl = [ { one = 1 } ] }
@@ -455,53 +610,49 @@ arr_tbl_tbl   = [ { tbl = { one = 1 } } ]
 arr_arr_tbl_empty = [ [ {} ] ]
 arr_arr_tbl_val = [ [ { one = 1 } ] ]
 arr_arr_tbls  = [ [ { one = 1 }, { two = 2 } ] ]
-") == Ok(TomlTable([
-  ("tbl_tbl_empty", TomlTable([
-    ("tbl_0", TomlTable([]))
-  ])),
-  ("tbl_tbl_val", TomlTable([
-    ("tbl_1", TomlTable([
-      ("one", TomlInt(1))
-    ]))
-  ])),
-  ("tbl_arr_tbl", TomlTable([
-    ("arr_tbl", TomlArray([
-      TomlTable([
-        ("one", TomlInt(1))
-      ])
-    ]))
-  ])),
-  ("arr_tbl_tbl", TomlArray([
-    TomlTable([
-      ("tbl", TomlTable([
-        ("one", TomlInt(1))
-      ]))
-    ])
-  ])),
-  ("arr_arr_tbl_empty", TomlArray([
-    TomlArray([
-      TomlTable([])
-    ])
-  ])),
-  ("arr_arr_tbl_val", TomlArray([
-    TomlArray([
-      TomlTable([
-        ("one", TomlInt(1))
-      ])
-    ])
-  ])),
-  ("arr_arr_tbls", TomlArray([
-    TomlArray([
-      TomlTable([
-        ("one", TomlInt(1))
-      ]),
-      TomlTable([
-        ("two", TomlInt(2))
-      ])
-    ])
-  ]))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("tbl_tbl_empty", TomlTable([("tbl_0", TomlTable([]))])),
+        (
+          "tbl_tbl_val",
+          TomlTable([("tbl_1", TomlTable([("one", TomlInt(1))]))]),
+        ),
+        (
+          "tbl_arr_tbl",
+          TomlTable(
+            [("arr_tbl", TomlArray([TomlTable([("one", TomlInt(1))])]))]
+          ),
+        ),
+        (
+          "arr_tbl_tbl",
+          TomlArray([TomlTable([("tbl", TomlTable([("one", TomlInt(1))]))])]),
+        ),
+        ("arr_arr_tbl_empty", TomlArray([TomlArray([TomlTable([])])])),
+        (
+          "arr_arr_tbl_val",
+          TomlArray([TomlArray([TomlTable([("one", TomlInt(1))])])]),
+        ),
+        (
+          "arr_arr_tbls",
+          TomlArray(
+            [
+              TomlArray(
+                [
+                  TomlTable([("one", TomlInt(1))]),
+                  TomlTable([("two", TomlInt(2))]),
+                ]
+              ),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 # TOML 1.1 supports newlines in inline tables and trailing commas.
 
 trailing-comma-1 = {
@@ -526,42 +677,47 @@ tbl-2 = {
 	Hello
 	\"\"\"
 }
-") == Ok(TomlTable([
-  ("trailing-comma-1", TomlTable([
-    ("c", TomlInt(1))
-  ])),
-  ("trailing-comma-2", TomlTable([
-    ("c", TomlInt(1))
-  ])),
-  ("tbl-1", TomlTable([
-    ("hello", TomlString("world")),
-    ("1", TomlInt(2)),
-    ("arr", TomlArray([
-      TomlInt(1),
-      TomlInt(2),
-      TomlInt(3)
-    ])),
-    ("tbl", TomlTable([
-      ("k", TomlInt(1))
-    ]))
-  ])),
-  ("tbl-2", TomlTable([
-    ("k", TomlString("\tHello\n\t")),
-  ]))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("trailing-comma-1", TomlTable([("c", TomlInt(1))])),
+        ("trailing-comma-2", TomlTable([("c", TomlInt(1))])),
+        (
+          "tbl-1",
+          TomlTable(
+            [
+              ("hello", TomlString("world")),
+              ("1", TomlInt(2)),
+              ("arr", TomlArray([TomlInt(1), TomlInt(2), TomlInt(3)])),
+              ("tbl", TomlTable([("k", TomlInt(1))])),
+            ]
+          ),
+        ),
+        ("tbl-2", TomlTable([("k", TomlString("\tHello\n\t"))])),
+      ]
+    )
+  )
 // integer
 assert fromString("
 answer = 42
 posanswer = +42
 neganswer = -42
 zero = 0
-") == Ok(TomlTable([
-  ("answer", TomlInt(42)),
-  ("posanswer", TomlInt(42)),
-  ("neganswer", TomlInt(-42)),
-  ("zero", TomlInt(0))
-]))
-assert fromString("
+") ==
+  Ok(
+    TomlTable(
+      [
+        ("answer", TomlInt(42)),
+        ("posanswer", TomlInt(42)),
+        ("neganswer", TomlInt(-42)),
+        ("zero", TomlInt(0)),
+      ]
+    )
+  )
+assert fromString(
+  "
 bin1 = 0b11010110
 bin2 = 0b1_0_1
 
@@ -573,32 +729,44 @@ hex1 = 0xDEADBEEF
 hex2 = 0xdeadbeef
 hex3 = 0xdead_beef
 hex4 = 0x00987
-") == Ok(TomlTable([
-  ("bin1", TomlInt(0b11010110)),
-  ("bin2", TomlInt(0b1_0_1)),
-  ("oct1", TomlInt(0o01234567)),
-  ("oct2", TomlInt(0o755)),
-  ("oct3", TomlInt(0o7_6_5)),
-  ("hex1", TomlInt(0xDEADBEEF)),
-  ("hex2", TomlInt(0xdeadbeef)),
-  ("hex3", TomlInt(0xdead_beef)),
-  ("hex4", TomlInt(0x00987))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("bin1", TomlInt(0b11010110)),
+        ("bin2", TomlInt(0b1_0_1)),
+        ("oct1", TomlInt(0o01234567)),
+        ("oct2", TomlInt(0o755)),
+        ("oct3", TomlInt(0o7_6_5)),
+        ("hex1", TomlInt(0xDEADBEEF)),
+        ("hex2", TomlInt(0xdeadbeef)),
+        ("hex3", TomlInt(0xdead_beef)),
+        ("hex4", TomlInt(0x00987)),
+      ]
+    )
+  )
+assert fromString(
+  "
 int64-max = 9223372036854775807
 int64-max-neg = -9223372036854775808
-") == Ok(TomlTable([
-  ("int64-max", TomlInt(9223372036854775807)),
-  ("int64-max-neg", TomlInt(-9223372036854775808))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("int64-max", TomlInt(9223372036854775807)),
+        ("int64-max-neg", TomlInt(-9223372036854775808)),
+      ]
+    )
+  )
 assert fromString("
 kilo = 1_000
 x = 1_1_1_1
-") == Ok(TomlTable([
-  ("kilo", TomlInt(1_000)),
-  ("x", TomlInt(1_1_1_1))
-]))
-assert fromString("
+") ==
+  Ok(TomlTable([("kilo", TomlInt(1_000)), ("x", TomlInt(1_1_1_1))]))
+assert fromString(
+  "
 d1 = 0
 d2 = +0
 d3 = -0
@@ -614,49 +782,51 @@ a3 = 0o00000
 b1 = 0b0
 b2 = 0b00
 b3 = 0b00000
-") == Ok(TomlTable([
-  ("d1", TomlInt(0)),
-  ("d2", TomlInt(0)),
-  ("d3", TomlInt(0)),
-  ("h1", TomlInt(0)),
-  ("h2", TomlInt(0)),
-  ("h3", TomlInt(0)),
-  ("o1", TomlInt(0)),
-  ("a2", TomlInt(0)),
-  ("a3", TomlInt(0)),
-  ("b1", TomlInt(0)),
-  ("b2", TomlInt(0)),
-  ("b3", TomlInt(0))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("d1", TomlInt(0)),
+        ("d2", TomlInt(0)),
+        ("d3", TomlInt(0)),
+        ("h1", TomlInt(0)),
+        ("h2", TomlInt(0)),
+        ("h3", TomlInt(0)),
+        ("o1", TomlInt(0)),
+        ("a2", TomlInt(0)),
+        ("a3", TomlInt(0)),
+        ("b1", TomlInt(0)),
+        ("b2", TomlInt(0)),
+        ("b3", TomlInt(0)),
+      ]
+    )
+  )
 // TODO: key
 // TODO: spec
 // string
 assert fromString("
 test = \"\\\"one\\\"\"
-") == Ok(TomlTable([
-  ("test", TomlString("\"one\""))
-]))
+") ==
+  Ok(TomlTable([("test", TomlString("\"one\""))]))
 assert fromString("
 answer = \"\"
-") == Ok(TomlTable([
-  ("answer", TomlString(""))
-]))
+") ==
+  Ok(TomlTable([("answer", TomlString(""))]))
 assert fromString("
 esc = \"\\e There is no escape! \\e\"
-") == Ok(TomlTable([
-  ("esc", TomlString("\u001b There is no escape! \u001b"))
-]))
+") ==
+  Ok(TomlTable([("esc", TomlString("\u001b There is no escape! \u001b"))]))
 assert fromString("
 answer = \"\\\\x64\"
-") == Ok(TomlTable([
-  ("answer", TomlString("\\x64"))
-]))
+") ==
+  Ok(TomlTable([("answer", TomlString("\\x64"))]))
 assert fromString("
 answer = \"\\\\x64\"
-") == Ok(TomlTable([
-  ("answer", TomlString("\\x64"))
-]))
-assert fromString("
+") ==
+  Ok(TomlTable([("answer", TomlString("\\x64"))]))
+assert fromString(
+  "
 backspace = \"This string has a \\b backspace character.\"
 tab = \"This string has a \\t tab character.\"
 newline = \"This string has a \\n new line character.\"
@@ -670,22 +840,53 @@ notunicode3 = \"This string does not have a unicode \\\\u0075 escape.\"
 notunicode4 = \"This string does not have a unicode \\\\\u0075 escape.\"
 delete = \"This string has a \\u007F delete control code.\"
 unitseparator = \"This string has a \\u001F unit separator control code.\"
-") == Ok(TomlTable([
-  ("backspace", TomlString("This string has a \u0008 backspace character.")),
-  ("tab", TomlString("This string has a \t tab character.")),
-  ("newline", TomlString("This string has a \n new line character.")),
-  ("formfeed", TomlString("This string has a \u000c form feed character.")),
-  ("carriage", TomlString("This string has a \r carriage return character.")),
-  ("quote", TomlString("This string has a \" quote character.")),
-  ("backslash", TomlString("This string has a \\ backslash character.")),
-  ("notunicode1", TomlString("This string does not have a unicode \\u escape.")),
-  ("notunicode2", TomlString("This string does not have a unicode \\u escape.")),
-  ("notunicode3", TomlString("This string does not have a unicode \\u0075 escape.")),
-  ("notunicode4", TomlString("This string does not have a unicode \\u escape.")),
-  ("delete", TomlString("This string has a  delete control code.")),
-  ("unitseparator", TomlString("This string has a \u001f unit separator control code."))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "backspace",
+          TomlString("This string has a \u0008 backspace character."),
+        ),
+        ("tab", TomlString("This string has a \t tab character.")),
+        ("newline", TomlString("This string has a \n new line character.")),
+        (
+          "formfeed",
+          TomlString("This string has a \u000c form feed character."),
+        ),
+        (
+          "carriage",
+          TomlString("This string has a \r carriage return character."),
+        ),
+        ("quote", TomlString("This string has a \" quote character.")),
+        ("backslash", TomlString("This string has a \\ backslash character.")),
+        (
+          "notunicode1",
+          TomlString("This string does not have a unicode \\u escape."),
+        ),
+        (
+          "notunicode2",
+          TomlString("This string does not have a unicode \\u escape."),
+        ),
+        (
+          "notunicode3",
+          TomlString("This string does not have a unicode \\u0075 escape."),
+        ),
+        (
+          "notunicode4",
+          TomlString("This string does not have a unicode \\u escape."),
+        ),
+        ("delete", TomlString("This string has a  delete control code.")),
+        (
+          "unitseparator",
+          TomlString("This string has a \u001f unit separator control code."),
+        ),
+      ]
+    )
+  )
+assert fromString(
+  "
 # \\x for the first 255 codepoints
 
 whitespace      = \"\\x20 \\x09 \\x1b \\x0d\\x0a\"
@@ -707,30 +908,49 @@ literal = '\\x20 \\x09 \\x0d\\x0a'
 multiline-literal = '''
 \\x20 \\x09 \\x0d\\x0a
 '''
-") == Ok(TomlTable([
-  ("whitespace", TomlString("  \t \u001b \r\n")),
-  ("bs", TomlString("")),
-  ("nul", TomlString("\u0000")),
-  ("hello", TomlString("hello\n")),
-  ("higher-than-127", TomlString("Sørmirbæren")),
-  ("multiline", TomlString("  \t \u001b \r\n\n\n\u0000\nhello\n\nSørmirbæren\n")),
-  ("literal", TomlString("\\x20 \\x09 \\x0d\\x0a")),
-  ("multiline-literal", TomlString("\\x20 \\x09 \\x0d\\x0a\n"))
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("whitespace", TomlString("  \t \u001b \r\n")),
+        ("bs", TomlString("")),
+        ("nul", TomlString("\u0000")),
+        ("hello", TomlString("hello\n")),
+        ("higher-than-127", TomlString("Sørmirbæren")),
+        (
+          "multiline",
+          TomlString("  \t \u001b \r\n\n\n\u0000\nhello\n\nSørmirbæren\n"),
+        ),
+        ("literal", TomlString("\\x20 \\x09 \\x0d\\x0a")),
+        ("multiline-literal", TomlString("\\x20 \\x09 \\x0d\\x0a\n")),
+      ]
+    )
+  )
+assert fromString(
+  "
 equivalent_three = \"\"\"\\
        The quick brown \\
        fox jumps over \\
        the lazy dog.\\
        \"\"\"
-") == Ok(TomlTable([
-  ("equivalent_three", TomlString("The quick brown fox jumps over the lazy dog."))
-]))
-assert fromString("0=\"\"\"\\\r\n\"\"\"") == Ok(TomlTable([
-  ("0", TomlString(""))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "equivalent_three",
+          TomlString("The quick brown fox jumps over the lazy dog."),
+        ),
+      ]
+    )
+  )
+assert fromString("0=\"\"\"\\\r\n\"\"\"") ==
+  Ok(TomlTable([("0", TomlString(""))]))
 // TODO: String.multiline-qoutes - Improve String Parsing
-assert fromString("
+assert fromString(
+  "
 multiline_empty_one = \"\"\"\"\"\"
 
 multiline_empty_two = \"\"\"
@@ -777,35 +997,60 @@ b\"\"\"
 
 escape-bs-3 = \"\"\"a \\\\\\\\
   b\"\"\"
-") == Ok(TomlTable([
-  ("multiline_empty_one", TomlString("")),
-  ("multiline_empty_two", TomlString("")),
-  ("multiline_empty_three", TomlString("")),
-  ("multiline_empty_four", TomlString("")),
-  ("equivalent_one", TomlString("The quick brown fox jumps over the lazy dog.")),
-  ("equivalent_two", TomlString("The quick brown fox jumps over the lazy dog.")),
-  ("equivalent_three", TomlString("The quick brown fox jumps over the lazy dog.")),
-  ("whitespace-after-bs", TomlString("The quick brown fox jumps over the lazy dog.")),
-  ("no-space", TomlString("ab")),
-  ("keep-ws-before", TomlString("a   \tb")),
-  ("escape-bs-1", TomlString("a \\\nb")),
-  ("escape-bs-2", TomlString("a \\b")),
-  ("escape-bs-3", TomlString("a \\\\\n  b")),
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("multiline_empty_one", TomlString("")),
+        ("multiline_empty_two", TomlString("")),
+        ("multiline_empty_three", TomlString("")),
+        ("multiline_empty_four", TomlString("")),
+        (
+          "equivalent_one",
+          TomlString("The quick brown fox jumps over the lazy dog."),
+        ),
+        (
+          "equivalent_two",
+          TomlString("The quick brown fox jumps over the lazy dog."),
+        ),
+        (
+          "equivalent_three",
+          TomlString("The quick brown fox jumps over the lazy dog."),
+        ),
+        (
+          "whitespace-after-bs",
+          TomlString("The quick brown fox jumps over the lazy dog."),
+        ),
+        ("no-space", TomlString("ab")),
+        ("keep-ws-before", TomlString("a   \tb")),
+        ("escape-bs-1", TomlString("a \\\nb")),
+        ("escape-bs-2", TomlString("a \\b")),
+        ("escape-bs-3", TomlString("a \\\\\n  b")),
+      ]
+    )
+  )
+assert fromString(
+  "
 nl_mid = \"val\\nue\"
 nl_end = \"\"\"value\\n\"\"\"
 
 lit_nl_end = '''value\\n'''
 lit_nl_mid = 'val\\nue'
 lit_nl_uni = 'val\\ue'
-") == Ok(TomlTable([
-  ("nl_mid", TomlString("val\nue")),
-  ("nl_end", TomlString("value\n")),
-  ("lit_nl_end", TomlString("value\\n")),
-  ("lit_nl_mid", TomlString("val\\nue")),
-  ("lit_nl_uni", TomlString("val\\ue")),
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("nl_mid", TomlString("val\nue")),
+        ("nl_end", TomlString("value\n")),
+        ("lit_nl_end", TomlString("value\\n")),
+        ("lit_nl_mid", TomlString("val\\nue")),
+        ("lit_nl_uni", TomlString("val\\ue")),
+      ]
+    )
+  )
 // TODO: FIXME - Look into why ud800 is invalid
 // assert fromString("
 // escaped_string = \"\\u0000 \\u0008 \\u000c \\U00000041 \\u007f \\u0080 \\u00ff \\ud7ff \\ue000 \\uffff \\U00010000 \\U0010ffff\"
@@ -819,7 +1064,8 @@ lit_nl_uni = 'val\\ue'
 //   ("basic_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff")),
 //   ("literal_string", TomlTable("~ \u0080 \u00ff \ud7ff \ue000 \uffff \ud800\udc00 \udbff\udfff"))
 // ]))
-assert fromString("
+assert fromString(
+  "
 # Single ' should be allowed.
 oneline = '''This string has a ' quote character.'''
 
@@ -838,13 +1084,25 @@ in it.'''
 # Tab character in literal string does not need to be escaped
 multiline_with_tab = '''First line
 	 Followed by a tab'''
-") == Ok(TomlTable([
-  ("oneline", TomlString("This string has a ' quote character.")),
-  ("firstnl", TomlString("This string has a ' quote character.")),
-  ("multiline", TomlString("This string\nhas ' a quote character\nand more than\none newline\nin it.")),
-  ("multiline_with_tab", TomlString("First line\n\t Followed by a tab")),
-]))
-assert fromString("
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("oneline", TomlString("This string has a ' quote character.")),
+        ("firstnl", TomlString("This string has a ' quote character.")),
+        (
+          "multiline",
+          TomlString(
+            "This string\nhas ' a quote character\nand more than\none newline\nin it."
+          ),
+        ),
+        ("multiline_with_tab", TomlString("First line\n\t Followed by a tab")),
+      ]
+    )
+  )
+assert fromString(
+  "
 backspace = 'This string has a \\b backspace character.'
 tab = 'This string has a \\t tab character.'
 unescaped_tab = 'This string has an 	 unescaped tab character.'
@@ -853,38 +1111,56 @@ formfeed = 'This string has a \\f form feed character.'
 carriage = 'This string has a \\r carriage return character.'
 slash = 'This string has a \\/ slash character.'
 backslash = 'This string has a \\\\ backslash character.'
-") == Ok(TomlTable([
-  ("backspace", TomlString("This string has a \\b backspace character.")),
-  ("tab", TomlString("This string has a \\t tab character.")),
-  ("unescaped_tab", TomlString("This string has an \t unescaped tab character.")),
-  ("newline", TomlString("This string has a \\n new line character.")),
-  ("formfeed", TomlString("This string has a \\f form feed character.")),
-  ("carriage", TomlString("This string has a \\r carriage return character.")),
-  ("slash", TomlString("This string has a \\/ slash character.")),
-  ("backslash", TomlString("This string has a \\\\ backslash character.")),
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("backspace", TomlString("This string has a \\b backspace character.")),
+        ("tab", TomlString("This string has a \\t tab character.")),
+        (
+          "unescaped_tab",
+          TomlString("This string has an \t unescaped tab character."),
+        ),
+        ("newline", TomlString("This string has a \\n new line character.")),
+        ("formfeed", TomlString("This string has a \\f form feed character.")),
+        (
+          "carriage",
+          TomlString("This string has a \\r carriage return character."),
+        ),
+        ("slash", TomlString("This string has a \\/ slash character.")),
+        (
+          "backslash",
+          TomlString("This string has a \\\\ backslash character."),
+        ),
+      ]
+    )
+  )
 assert fromString("
 answer = \"You are not drinking enough whisky.\"
-") == Ok(TomlTable([
-  ("answer", TomlString("You are not drinking enough whisky."))
-]))
+") ==
+  Ok(TomlTable([("answer", TomlString("You are not drinking enough whisky."))]))
 assert fromString("
 answer4 = \"\\u03B4\"
 answer8 = \"\\U000003B4\"
-") == Ok(TomlTable([
-  ("answer4", TomlString("δ")),
-  ("answer8", TomlString("δ"))
-]))
-assert fromString("answer = \"δ\"") == Ok(TomlTable([
-  ("answer", TomlString("δ"))
-]))
-assert fromString("
+") ==
+  Ok(TomlTable([("answer4", TomlString("δ")), ("answer8", TomlString("δ"))]))
+assert fromString("answer = \"δ\"") ==
+  Ok(TomlTable([("answer", TomlString("δ"))]))
+assert fromString(
+  "
 pound = \"We see no # comments here.\"
 poundcomment = \"But there are # some comments here.\" # Did I # mess you up?
-") == Ok(TomlTable([
-  ("pound", TomlString("We see no # comments here.")),
-  ("poundcomment", TomlString("But there are # some comments here."))
-]))
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("pound", TomlString("We see no # comments here.")),
+        ("poundcomment", TomlString("But there are # some comments here.")),
+      ]
+    )
+  )
 // TODO: table
 // Random
 assert fromString("") == Ok(TomlTable([]))
@@ -895,54 +1171,66 @@ answer = 42
 
 [a]
 better = 43
-") == Ok(TomlTable([
-  ("a", TomlTable([
-    ("b", TomlTable([
-      ("c", TomlTable([
-        ("answer", TomlInt(42))
-      ]))
-    ])),
-    ("better", TomlInt(43))
-  ]))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "a",
+          TomlTable(
+            [
+              ("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))])),
+              ("better", TomlInt(43)),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 [a]
 better = 43
 
 [a.b.c]
 answer = 42
-") == Ok(TomlTable([
-  ("a", TomlTable([
-    ("better", TomlInt(43)),
-    ("b", TomlTable([
-      ("c", TomlTable([
-        ("answer", TomlInt(42))
-      ]))
-    ]))
-  ]))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "a",
+          TomlTable(
+            [
+              ("better", TomlInt(43)),
+              ("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))])),
+            ]
+          ),
+        ),
+      ]
+    )
+  )
 assert fromString("
 [a.b.c]
 answer = 42
-") == Ok(TomlTable([
-  ("a", TomlTable([
-    ("b", TomlTable([
-      ("c", TomlTable([
-        ("answer", TomlInt(42))
-      ]))
-    ]))
-  ]))
-]))
-assert fromString("os = \"DOS\"\r\nnewline = \"crlf\"\r\n") == Ok(TomlTable([
-  ("os", TomlString("DOS")),
-  ("newline", TomlString("crlf"))
-]))
+") ==
+  Ok(
+    TomlTable(
+      [
+        (
+          "a",
+          TomlTable(
+            [("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))]))]
+          ),
+        ),
+      ]
+    )
+  )
+assert fromString("os = \"DOS\"\r\nnewline = \"crlf\"\r\n") ==
+  Ok(TomlTable([("os", TomlString("DOS")), ("newline", TomlString("crlf"))]))
 assert fromString("
 os = \"unix\"
 newline = \"lf\"
-") == Ok(TomlTable([
-  ("os", TomlString("unix")),
-  ("newline", TomlString("lf"))
-]))
+") ==
+  Ok(TomlTable([("os", TomlString("unix")), ("newline", TomlString("lf"))]))
 // TODO: Random.spec-example-1-compact - Support Dates
 // TODO: Random.spec-example-1 - Support Dates

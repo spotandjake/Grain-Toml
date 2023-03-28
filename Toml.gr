@@ -1,871 +1,1225 @@
 module Toml
+
 include "string"
-include "array"
-include "list"
 include "char"
+include "list"
+include "buffer"
+include "uint8"
 include "number"
-include "bytes"
-// TODO: Use Err, instead of fail
-// TODO: Get Rid Of Lexer, Merge With parser
-// Type
-enum LexerToken {
-  // Fully Matched
-  LexedBasicString(String),
-  LexedBasicMultiLineString(String),
-  LexedLiteralString(String),
-  LexedLiteralMultiLineString(String),
-  LexedBool(Bool),
-  // TODO: LexedNumeric(String, CanBeFloat, CanBeDate)
-  // Unmatched
-  // TODO: Consider Changing This To Literal(List<String>)
-  Literal(List<Char>),
-  Eq,
-  Sbo,
-  Cbo,
-  Sbc,
-  Cbc,
-  LineBreak,
-  CarriageReturn,
-  BackSlash,
-  Comma,
-}
-provide enum TomlValue {
+include "array"
+include "runtime/unsafe/wasmi32"
+include "runtime/numberUtils"
+include "runtime/string" as RunTimeString
+include "runtime/numbers"
+include "runtime/dataStructures"
+from RunTimeString use { toString as runtimeToString }
+from Numbers use { coerceNumberToWasmI32 }
+from DataStructures use { tagSimpleNumber }
+// TODO: Allow Comments Anywhere somehow
+// Types
+
+provide enum Toml {
+  TomlTable(List<(String, Toml)>),
+  TomlArray(List<Toml>),
   TomlString(String),
   TomlInt(Number),
   TomlFloat(Number),
   TomlBool(Bool),
-  TomlDateTime(String, String),
-  TomlDate(String),
-  TomlTime(String),
-  TomlTable(List<(String, TomlValue)>),
-  TomlArray(List<TomlValue>),
+  TomlDateTime(Number, Number),
+  TomlTime(Number),
 }
-// TODO: Rewrite This To Be Simple
-let escapeString = (str, isBasic, isMultiLine) => {
-  // Normalize Line Ending
-  let mut normalStr = ""
-  let mut str = List.reverse(str)
+/**
+ * Represents errors for TOML parsing along with a human readable text message.
+ */
+provide enum TOMLParseError {
+  UnexpectedEndOfInput(String),
+  UnexpectedToken(String),
+  InvalidUTF16SurrogatePair(String),
+  TomlInvalidTableWrite,
+}
+
+/**
+ * Internal data structure used during parsing.
+ */
+record TOMLParserState {
+  string: String,
+  bufferParse: Buffer.Buffer,
+  mut currentCodePoint: Number,
+  mut pos: Number,
+  mut bytePos: Number,
+}
+exception MalformedUnicode
+// Internals
+let _END_OF_INPUT = -1
+@unsafe
+let toHex = (n: Number) => {
+  let x = coerceNumberToWasmI32(n)
+  NumberUtils.itoa32(x, 16n)
+}
+let toHexWithZeroPadding = (n: Number, padTo: Number) => {
+  // Note that this function is only called in exceptional cases so no effort
+  // was made to optimize it.
+  let mut result = toHex(n)
+  while (String.length(result) < padTo) {
+    result = "0" ++ result
+  }
+  result
+}
+let formatCodePointOrEOF = (codePoint: Number) => {
+  if (codePoint >= 32 && codePoint <= 126) {
+    // If the codepoint is in the range of printable ASCII charactes, then
+    // display the character itself . Whether it's a good idea to display
+    // all of them, especially space is up for debate.
+    "'" ++ runtimeToString(Char.fromCode(codePoint)) ++ "'"
+  } else if (codePoint == -1) {
+    // Special case for value used by the parsing code to avoid heap allocations.
+    "end of input"
+  } else {
+    // Format any other code point as hexadecimal value.
+    "U+" ++ toHexWithZeroPadding(codePoint, 4)
+  }
+}
+let buildUnexpectedTokenError =
+  (
+    parserState: TOMLParserState,
+    detail: String,
+  ) => {
+  let codePoint = parserState.currentCodePoint
+  let pos = parserState.pos
+  if (codePoint == _END_OF_INPUT) {
+    UnexpectedEndOfInput(
+      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail
+    )
+  } else {
+    UnexpectedToken(
+      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail
+    )
+  }
+}
+// TODO: validate these are all the new line and space tokens allowed in toml
+let isInterTokenNewLine = (codePoint: Number) => {
+  match (codePoint) {
+    0x0A => true, // line feed
+    // TODO: The spec says it must be a crlf so figure out if only matching to cr is acceptable
+    0x0D => true, // carriage return
+    _ => false,
+  }
+}
+let isInterTokenSpace = (codePoint: Number) => {
+  match (codePoint) {
+    0x09 => true, // tab
+    0x20 => true, // space
+    _ => false,
+  }
+}
+let isInterTokenWhiteSpace = (codePoint: Number) => {
+  isInterTokenSpace(codePoint) || isInterTokenNewLine(codePoint)
+}
+
+// This function has been copied from the String module as a temporary
+// solution. This will likely be replaced by a more robust solution for
+// iterating over strings in the near future.
+@unsafe
+let getCodePoint = (ptr: WasmI32) => {
+  // Algorithm from https://encoding.spec.whatwg.org/#utf-8-decoder
+  from WasmI32 use {
+    add as (+),
+    and as (&),
+    or as (|),
+    shl as (<<),
+    leU as (<=),
+    geU as (>=),
+    eq as (==),
+  }
+
+  let mut codePoint = 0n
+  let mut bytesSeen = 0n
+  let mut bytesNeeded = 0n
+  let mut lowerBoundary = 0x80n
+  let mut upperBoundary = 0xBFn
+
+  let mut offset = 0n
+
   while (true) {
-    match (str) {
-      // Handle Quick Escape Sequences
-      [ '\r', '\n', ...rest ] => {
-        normalStr = normalStr ++ "\n"
-        str = rest
-      },
-      // Normal Chars
-      [ item, ...rest ] => {
-        normalStr = normalStr ++ Char.toString(item)
-        str = rest
-      },
-      [] => break
+    let byte = WasmI32.load8U(ptr + offset, 0n)
+    offset += 1n
+    if (bytesNeeded == 0n) {
+      if (byte >= 0x00n && byte <= 0x7Fn) {
+        return byte
+      } else if (byte >= 0xC2n && byte <= 0xDFn) {
+        bytesNeeded = 1n
+        codePoint = byte & 0x1Fn
+      } else if (byte >= 0xE0n && byte <= 0xEFn) {
+        if (byte == 0xE0n) lowerBoundary = 0xA0n
+        if (byte == 0xEDn) upperBoundary = 0x9Fn
+        bytesNeeded = 2n
+        codePoint = byte & 0xFn
+      } else if (byte >= 0xF0n && byte <= 0xF4n) {
+        if (byte == 0xF0n) lowerBoundary = 0x90n
+        if (byte == 0xF4n) upperBoundary = 0x8Fn
+        bytesNeeded = 3n
+        codePoint = byte & 0x7n
+      } else {
+        throw MalformedUnicode
+      }
+      continue
+    }
+    if (!(lowerBoundary <= byte && byte <= upperBoundary)) {
+      throw MalformedUnicode
+    }
+    lowerBoundary = 0x80n
+    upperBoundary = 0xBFn
+    codePoint = codePoint << 6n | byte & 0x3Fn
+    bytesSeen += 1n
+    if (bytesSeen == bytesNeeded) {
+      return codePoint
     }
   }
-  // Trim
-  let mut escapedStr = ""
-  let mut str = Array.toList(String.explode(normalStr))
-  // Handle Trimming
-  if (isMultiLine) {
-    match (str) {
-      [ '\n', ...rest ] => str = rest,
-      _ => void
-    }
+  return 0n
+}
+
+@unsafe
+let rec readCodePoint = (bytePosition: Number, string: String) => {
+  from WasmI32 use { add as (+), ltU as (<) }
+
+  let strPtr = WasmI32.fromGrain(string)
+
+  let byteSize = WasmI32.load(strPtr, 4n)
+
+  let bytePositionW32 = coerceNumberToWasmI32(bytePosition)
+
+  let ptr = strPtr + 8n + bytePositionW32
+
+  let mut idx = 0n
+
+  if (bytePositionW32 < byteSize) {
+    let codePoint = getCodePoint(ptr)
+    tagSimpleNumber(codePoint)
+  } else {
+    _END_OF_INPUT
   }
-  // Handle Trimming
-  if (isBasic && isMultiLine) {
-    let mut tempStr = str
-    str = []
-    while (true) {
-      match (tempStr) {
-        [ '\\', '\\', ...rest] => {
-          str = [ '\\', '\\', ...str ]
-          tempStr = rest
-        },
-        [ '\\', ...rest ] => {
-          let mut tempBuffer = rest
-          let mut tempRest = rest
-          let mut isNewLine = false
-          while (true) {
-            match (tempRest) {
-              [ '\n', ...rest ] => {
-                isNewLine = true
-                tempRest = rest
-              },
-              [ ' ', ...rest ] => {
-                tempBuffer = [ ' ', ...tempBuffer ]
-                tempRest = rest
-              },
-              [ '\t', ...rest ] => {
-                tempBuffer = [ '\t', ...tempBuffer ]
-                tempRest = rest
-              },
-              [ n, ...rest ] => {
-                // If Not Is NewLine
-                if (isNewLine) {
-                  tempStr = [ n, ...rest ]
-                } else {
-                  str = [ '\\', ...str ]
-                  tempStr = tempBuffer
-                }
-                break
-              },
-              [] => {
-                tempStr = []
-                break
+}
+
+let codePointUTF8ByteCount = (usv: Number) => {
+  if (!Char.isValid(usv)) {
+    throw InvalidArgument("Invalid unicode scalar value")
+  }
+
+  if (usv <= 127) {
+    1
+  } else if (usv <= 2047) {
+    2
+  } else if (usv <= 65535) {
+    3
+  } else {
+    4
+  }
+}
+
+let isAtEndOfInput = (parserState: TOMLParserState) => {
+  parserState.currentCodePoint == _END_OF_INPUT
+}
+
+let next = (parserState: TOMLParserState) => {
+  let mut c = parserState.currentCodePoint
+  if (c != _END_OF_INPUT) {
+    parserState.bytePos += codePointUTF8ByteCount(c)
+
+    c = readCodePoint(parserState.bytePos, parserState.string)
+
+    parserState.currentCodePoint = c
+    parserState.pos += 1
+  }
+  c
+}
+let expectCodePointAndAdvance =
+  (
+    expectedCodePoint: Number,
+    parserState: TOMLParserState,
+  ) => {
+  let c = parserState.currentCodePoint
+  if (c == expectedCodePoint) {
+    next(parserState)
+    None
+  } else {
+    let detail = "expected " ++
+      formatCodePointOrEOF(expectedCodePoint) ++
+      ", found " ++
+      formatCodePointOrEOF(c)
+    Some(buildUnexpectedTokenError(parserState, detail))
+  }
+}
+
+let skipNewLine = (parserState: TOMLParserState) => {
+  // isAtEndOfInput is not strictly necessary here
+  // could remove as an optimization
+  while (
+    isInterTokenNewLine(parserState.currentCodePoint) &&
+    !isAtEndOfInput(parserState)
+  ) {
+    next(parserState)
+    void
+  }
+}
+let skipSpace = (parserState: TOMLParserState) => {
+  // isAtEndOfInput is not strictly necessary here
+  // could remove as an optimization
+  while (
+    isInterTokenSpace(parserState.currentCodePoint) &&
+    !isAtEndOfInput(parserState)
+  ) {
+    next(parserState)
+    void
+  }
+}
+let skipWhiteSpace = (parserState: TOMLParserState) => {
+  // isAtEndOfInput is not strictly necessary here
+  // could remove as an optimization
+  while (
+    isInterTokenWhiteSpace(parserState.currentCodePoint) &&
+    !isAtEndOfInput(parserState)
+  ) {
+    next(parserState)
+    void
+  }
+}
+let addCharFromCodePoint = (codePoint: Number, buffer: Buffer.Buffer) => {
+  Buffer.addChar(Char.fromCode(codePoint), buffer)
+}
+let atoiFast = buffer => {
+  let bufLen = Buffer.length(buffer)
+  let mut result = 0
+  for (let mut i = 0; i < bufLen; i += 1) {
+    from Uint8 use { (-) }
+    result = (result << 1) +
+      (result << 3) +
+      Uint8.toNumber(Buffer.getUint8(i, buffer) - 48us)
+  }
+  result
+}
+// Toml Table
+let rec writeTable = (tablePath, tableElement, rootTable) => {
+  match (tablePath) {
+    [pathItem, ...rest] => {
+      match (rootTable) {
+        TomlTable(tableItems) => {
+          // Find Path Item
+          let pathItemIndex = List.findIndex(((key, _)) =>
+            key == pathItem, tableItems)
+          let (tableKey, tableValue) = match (pathItemIndex) {
+            Some(pathItemIndex) => {
+              match (List.nth(pathItemIndex, tableItems)) {
+                Some(item) => item,
+                None => fail "Impossible5",
               }
-            }
+            },
+            None => (pathItem, TomlTable([])),
+          }
+          match (writeTable(rest, tableElement, tableValue)) {
+            Err(err) => Err(err),
+            Ok(item) => {
+              let tableItems = match (pathItemIndex) {
+                Some(pathItemIndex) => {
+                  // TODO: Find a faster way todo this
+                  let arr = Array.fromList(tableItems)
+                  arr[pathItemIndex] = (pathItem, item)
+                  Array.toList(arr)
+                },
+                // TODO: Find a faster way of doing this
+                None => List.append(tableItems, [(pathItem, item)]),
+              }
+              Ok(TomlTable(tableItems))
+            },
           }
         },
-        [ item, ...rest ] => {
-          str = [ item, ...str ]
-          tempStr = rest
+        _ => Err(TomlInvalidTableWrite),
+      }
+    },
+    _ => Ok(tableElement),
+  }
+}
+
+// A-Za-z0-9_-
+let isValidBareKeyChar = c =>
+  c >= 0x41 && c <= 0x5A ||
+    c >= 0x61 && c <= 0x7A ||
+    c >= 0x30 && c <= 0x39 ||
+    c == 0x5F ||
+    c == 0x2D
+// Parse key
+let rec parseKey = parserState => {
+  Buffer.clear(parserState.bufferParse)
+  let mut allowMore = true
+  let mut key = []
+  while (!isAtEndOfInput(parserState)) {
+    // TODO: Parse Key until we hit invalid key rather then hit an end char, let parent deal with validation
+    match (parserState.currentCodePoint) {
+      // '
+      0x27 when allowMore => {
+        let str = match (parseLitStringLiteral(parserState, false)) {
+          Ok(TomlString(str)) => str,
+          Err(err) => return Err(err),
+          _ => fail "Impossible7",
+        }
+        Buffer.clear(parserState.bufferParse)
+        Buffer.addString(str, parserState.bufferParse)
+        allowMore = false
+      },
+      // "
+      0x22 when allowMore => {
+        let str = match (parseBasicStringLiteral(parserState, false)) {
+          Ok(TomlString(str)) => str,
+          Err(err) => return Err(err),
+          _ => fail "Impossible6",
+        }
+        Buffer.clear(parserState.bufferParse)
+        Buffer.addString(str, parserState.bufferParse)
+        allowMore = false
+      },
+      // .
+      0x2E => {
+        next(parserState)
+        skipSpace(parserState)
+        allowMore = true
+        key = [Buffer.toString(parserState.bufferParse), ...key]
+        Buffer.clear(parserState.bufferParse)
+      },
+      // =
+      0x3D => break,
+      // [
+      0x5D => break,
+      // Handle bare Key
+      c when isValidBareKeyChar(c) && allowMore => {
+        next(parserState)
+        addCharFromCodePoint(c, parserState.bufferParse)
+      },
+      // Handle Space
+      c when isInterTokenSpace(c) => {
+        next(parserState)
+        allowMore = false
+      },
+      // Invalid Key Value
+      c => {
+        let detail = "expected one of the following chars A-Za-z0-9_-, found " ++
+          formatCodePointOrEOF(c)
+        return Err(buildUnexpectedTokenError(parserState, detail))
+      },
+    }
+  }
+  key = [Buffer.toString(parserState.bufferParse), ...key]
+  // Return Key Path
+  return Ok(List.reverse(key))
+},
+// Parse Literal
+parseTrueLiteral = parserState => {
+  match (expectCodePointAndAdvance(0x74, parserState)) {
+    // 't'
+    Some(e) => Err(e),
+    None => {
+      match (expectCodePointAndAdvance(0x72, parserState)) {
+        // 'r'
+        Some(e) => Err(e),
+        None => {
+          match (expectCodePointAndAdvance(0x75, parserState)) {
+            // 'u'
+            Some(e) => Err(e),
+            None => {
+              match (expectCodePointAndAdvance(0x65, parserState)) {
+                // 'e'
+                Some(e) => Err(e),
+                None => Ok(TomlBool(true)),
+              }
+            },
+          }
         },
-        [] => break
       }
-    }
-    str = List.reverse(str)
-  }
-  // Handle Escaping
-  while (true) {
-    match (str) {
-      // Handle Quick Escape Sequences
-      [ '\\', 'b', ...rest ] when isBasic => { // Backspace
-        escapedStr = escapedStr ++ "\u0008"
-        str = rest
-      },
-      [ '\\', 't', ...rest ] when isBasic => { // Tab
-        escapedStr = escapedStr ++ "\u0009"
-        str = rest
-      },
-      [ '\\', 'n', ...rest ] when isBasic => { // LineFeed
-        escapedStr = escapedStr ++ "\u000A"
-        str = rest
-      },
-      [ '\\', 'f', ...rest ] when isBasic => { // FormFeed
-        escapedStr = escapedStr ++ "\u000C"
-        str = rest
-      },
-      [ '\\', 'r', ...rest ] when isBasic => { // Carriage Return
-        escapedStr = escapedStr ++ "\u000D"
-        str = rest
-      },
-      [ '\\', 'e', ...rest ] when isBasic => { // Escape
-        escapedStr = escapedStr ++ "\u001B"
-        str = rest
-      },
-      [ '\\', '"', ...rest ] when isBasic => { // Double Quote
-        escapedStr = escapedStr ++ "\u0022"
-        str = rest
-      },
-      [ '\\', '\\', ...rest ] when isBasic => { // BackSlash
-        escapedStr = escapedStr ++ "\u005C"
-        str = rest
-      },
-      // Unicode Escape Sequences
-      [ '\\', 'x', d0, d1, ...rest] when isBasic => {
-        let s = String.implode([> d0, d1 ])
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      [ '\\', 'u', d0, d1, d2, d3, ...rest] when isBasic => {
-        let s = String.implode([> d0, d1, d2, d3 ])
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      [ '\\', 'U', d0, d1, d2, d3, d4, d5, d6, d7, ...rest] when isBasic => {
-        let s = String.implode([> d0, d1, d2, d3, d4, d5, d6, d7 ])
-        let i = Number.parseInt(s, 16)
-        match (i) {
-          Ok (i) => escapedStr = escapedStr ++ Char.toString(Char.fromCode(i)),
-          Err(_) => fail "TOML: Invalid Unicode Escape Sequence"
-        }
-        str = rest
-      },
-      // Normal Chars
-      [ item, ...rest ] => {
-        escapedStr = escapedStr ++ Char.toString(item)
-        str = rest
-      },
-      [] => break
-    }
-  }
-  // return escaped string
-  escapedStr
-}
-// Lex
-let lexToml = (inputStr) => {
-  let mut lexemes = []
-  let mut buffer = Array.toList(String.explode(inputStr))
-  let mut builtLiteral = []
-  while (true) {
-    let mut didHitItem = true
-    let mut canBreak = false
-    let mut scopeLexemes = []
-    match (buffer) {
-      // Done Parsing
-      [] => canBreak = true,
-      // WhiteSpace
-      [ ' ', ...rest ] | [ '\t', ...rest ] => buffer = rest,
-      [ '#', ...rest ] => {
-        buffer = rest
-        while (true) {
-          match (buffer) {
-            [ '\n', ...rest ] => break,
-            [ item, ...rest ] => buffer = rest,
-            [] => break
-          }
-        }
-      },
-      // Strings
-      [ '"', '"', '"', ...rest ] => {
-        buffer = rest
-        let mut builtStr = []
-        while (true) {
-          match (buffer) {
-            [ '"', '"', '"', ...rest ] => {
-              buffer = rest
-              break
-            },
-            [ '\\', '"', ...rest ] => {
-              buffer = rest
-              builtStr = [ '"', '\\', ...builtStr ]
-            },
-            [ '\\', '\\', ...rest ] => {
-              buffer = rest
-              builtStr = [ '\\', '\\', ...builtStr ]
-            },
-            [ item, ...rest ] => {
-              buffer = rest
-              builtStr = [ item, ...builtStr ]
-            },
-            [] => fail "Invalid Toml Multi-line Basic String"
-          }
-        }
-        scopeLexemes = [ LexedBasicMultiLineString(escapeString(builtStr, true, true)), ...scopeLexemes ]
-      },
-      [ '"', ...rest ] => {
-        buffer = rest
-        let mut builtStr = []
-        while (true) {
-          match (buffer) {
-            [ '"', ...rest ] => {
-              buffer = rest
-              break
-            },
-            [ '\\', '"', ...rest ] => {
-              buffer = rest
-              builtStr = [ '"', '\\',  ...builtStr ]
-            },
-            [ '\\', '\\', ...rest ] => {
-              buffer = rest
-              builtStr = [ '\\', '\\', ...builtStr ]
-            },
-            [ item, ...rest ] => {
-              buffer = rest
-              builtStr = [ item, ...builtStr ]
-            },
-            [] => fail "Invalid Toml Basic String"
-          }
-        }
-        scopeLexemes = [ LexedBasicString(escapeString(builtStr, true, false)), ...scopeLexemes ]
-      },
-      [ '\'', '\'', '\'', ...rest ] => {
-        buffer = rest
-        let mut builtStr = []
-        while (true) {
-          match (buffer) {
-            [ '\'', '\'', '\'', ...rest ] => {
-              buffer = rest
-              break
-            },
-            [ item, ...rest ] => {
-              buffer = rest
-              builtStr = [ item, ...builtStr ]
-            },
-            [] => fail "Invalid Toml Multi-line Literal String"
-          }
-        }
-        scopeLexemes = [ LexedLiteralMultiLineString(escapeString(builtStr, false, true)), ...scopeLexemes ]
-      },
-      [ '\'', ...rest ] => {
-        buffer = rest
-        let mut builtStr = []
-        while (true) {
-          match (buffer) {
-            [ '\'', ...rest ] => {
-              buffer = rest
-              break
-            },
-            [ item, ...rest ] => {
-              buffer = rest
-              builtStr = [ item, ...builtStr ]
-            },
-            [] => fail "Invalid Toml Literal String"
-          }
-        }
-        scopeLexemes = [ LexedLiteralString(escapeString(builtStr, false, false)), ...scopeLexemes ]
-      },
-      // Boolean
-      [ 't', 'r', 'u', 'e', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ LexedBool(true), ...scopeLexemes ]
-      },
-      [ 'f', 'a', 'l', 's', 'e', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ LexedBool(false), ...scopeLexemes ]
-      },
-      // Line Breaks
-      [ '\n', ...rest ] | [ '\r', '\n', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ LineBreak, ...scopeLexemes ]
-      },
-      [ '\r', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ CarriageReturn, ...scopeLexemes ]
-      },
-      // Symbols
-      [ '=', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Eq, ...scopeLexemes ]
-      },
-      [ '[', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Sbo, ...scopeLexemes ]
-      },
-      [ ']', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Sbc, ...scopeLexemes ]
-      },
-      [ '{', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Cbo, ...scopeLexemes ]
-      },
-      [ '}', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Cbc, ...scopeLexemes ]
-      },
-      [ ',', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ Comma, ...scopeLexemes ]
-      },
-      [ '\\', ...rest ] => {
-        buffer = rest
-        scopeLexemes = [ BackSlash, ...scopeLexemes ]
-      },
-      // Unknown Text
-      [ item, ...rest ] => {
-        buffer = rest
-        didHitItem = false
-        builtLiteral = [ item, ...builtLiteral ]
-      }
-    }
-    if (didHitItem && List.length(builtLiteral) != 0) {
-      // TODO: Make Literal Take A List
-      lexemes = [ Literal(List.reverse(builtLiteral)), ...lexemes ]
-      builtLiteral = []
-    }
-    lexemes = List.append(scopeLexemes, lexemes)
-    if (canBreak) break
-  }
-  List.reverse(lexemes)
-}
-// Parser
-let isFloat = (chars) => {
-  // TODO: Validate This
-  // Allow +, -
-  let lst = match (chars) {
-    [ '+', ...rest ] | [ '-', ...rest ] => rest,
-    _ => chars
-  }
-  match (lst) {
-    [ 'n', 'a', 'n' ] => return true,
-    [ 'i', 'n', 'f' ] => return true,
-    _ => void
-  }
-  // Validation
-  if (!List.contains('.', lst) && !List.contains('e', lst) && !List.contains('E', lst)) return false
-  let mut lastChar = '_'
-  let mut index = 0
-  let lstLen = List.length(lst)
-  let mut chosenStyle = 0
-  let mut resetStyle = false
-  return List.every((char) => {
-    index += 1
-    let charCode = Char.code(char)
-    if (resetStyle && chosenStyle == 2) {
-      if (char == '+' || char == '-') return true
-    }
-    resetStyle = false
-    if (lastChar == '_' && char == '_') return false
-    if (lstLen == index && char == '_') return false
-    if (char == '_') return true
-    lastChar = char
-    // Integers
-    if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
-    // Decimal Or Exponent
-    if (lstLen == index && char == '.') return false
-    if (lstLen == index && char == 'e') return false
-    if (lstLen == index && char == 'E') return false
-    if (chosenStyle == 0) {
-      if (char == '.') {
-        chosenStyle = 1
-        resetStyle = true
-        if (lastChar == '_') return false
-        lastChar = '_'
-        return true
-      }
-    } else {
-      if (char == '.') return false
-    }
-    if (chosenStyle == 0 || chosenStyle == 1) {
-      if (char == 'e' || char == 'E') {
-        chosenStyle = 2
-        resetStyle = true
-        if (lastChar == '_') return false
-        lastChar = '_'
-        return true
-      }
-    } else {
-      if (char == 'e') return false
-      if (char == 'E') return false
-    }
-    // Otherwise False
-    return false
-  }, lst)
-}
-let isNumber = (chars) => {
-  // TODO: Validate This
-  let lst = chars
-  // Allow +, -
-  let mut posSign = false
-  let lst = match (lst) {
-    [ '+', ...rest ] => {
-      posSign = true
-      rest
     },
-    [ '-', ...rest ] => rest,
-    _ => lst
   }
-  // Match Type
-  let mut numberRadix = 10
-  let lst = match (lst) {
-    // Hex
-    [ '0', 'x', ...rest ] |
-    [ '0', 'X', ...rest ] => {
-      numberRadix = 16
-      rest
-    },
-    // Octal
-    [ '0', 'o', ...rest ] |
-    [ '0', 'O', ...rest ] => {
-      numberRadix = 8
-      rest
-    },
-    // Binary
-    [ '0', 'b', ...rest ] |
-    [ '0', 'B', ...rest ] => {
-      numberRadix = 2
-      rest
-    },
-    // Rest
-    _ => lst
-  }
-  if (posSign && numberRadix != 10) return false
-  // Validation
-  let mut lastChar = '_'
-  let mut index = 0
-  let lstLen = List.length(lst)
-  return List.every((char) => {
-    index += 1
-    let charCode = Char.code(char)
-    if (lastChar == '_' && char == '_') return false
-    if (lstLen == index && char == '_') return false
-    if (char == '_') return true
-    lastChar = char
-    if (numberRadix == 10) {
-      if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
-    } else if (numberRadix == 16) {
-      if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
-      else if (charCode >= Char.code('A') && charCode <= Char.code('Z')) return true
-      else if (charCode >= Char.code('a') && charCode <= Char.code('z')) return true
-    } else if (numberRadix == 8) {
-      if (charCode >= Char.code('0') && charCode <= Char.code('7')) return true
-    } else if (numberRadix == 2) {
-      if (char == '0' || char == '1') return true
-    }
-    return false
-  }, lst)
-}
-// Handle Keys
-// TODO: Rewrite All This Completely
-let isValidKeyChar = (keyChar) => {
-  let charCode = Char.code(keyChar)
-  // Digits
-  if (charCode >= Char.code('0') && charCode <= Char.code('9')) return true
-  // Alphabetical
-  if (charCode >= Char.code('a') && charCode <= Char.code('z')) return true
-  if (charCode >= Char.code('A') && charCode <= Char.code('Z')) return true
-  // Symbols
-  if (keyChar == '-' || keyChar == '_') return true
-  // TODO: Determine what other characters are valid
-  // Invalid
-  return false
-}
-let parseTableOrNameKey = (rawKeyLexemes) => {
-  if (List.length(rawKeyLexemes) == 0) fail "Invalid Toml Key"
-  // Break Apart By Dot
-  let mut rawKeyLexemes = rawKeyLexemes
-  let mut keyLexemes  = []
-  while (true) {
-    match (rawKeyLexemes) {
-      [ Literal(chars), ...rest ]=> {
-        rawKeyLexemes = rest
-        // Split by Dots
-        let mut keyBuf = []
-        let mut chars = chars
-        while (true) {
-          match (chars) {
-            [ '.', ...rest ]=> {
-              chars = rest
-              if (List.length(keyBuf) > 0)
-                keyLexemes = [ Literal(List.reverse(keyBuf)), ...keyLexemes ]
-              keyLexemes = [ Literal(['.']), ...keyLexemes ]
-              keyBuf = []
-            },
-            [ item, ...rest ] => {
-              chars = rest
-              keyBuf = [item, ...keyBuf ]
-            },
-            [] => break
-          }
-        }
-        if (List.length(keyBuf) > 0) keyLexemes = [ Literal(List.reverse(keyBuf)), ...keyLexemes ]
-      },
-      [item, ...rest] => {
-        rawKeyLexemes = rest
-        keyLexemes = [ item, ...keyLexemes ]
-      },
-      [] => break
-    }
-  }
-  let mut keyLexemes = List.reverse(keyLexemes)
-  // Build Key Path
-  let mut keyPath = []
-  let mut keyBuffer = ""
-  // Create KeyPath
-  let mut lastItemDot = true
-  List.forEach((rawKeyLexeme) => {
-    // Validate
-    let mut matchedDot = false
-    match (rawKeyLexeme) {
-      LexedBasicString(txt) | LexedLiteralString(txt) => {
-        if (!lastItemDot) fail "Invalid Toml Key"
-        keyBuffer = keyBuffer ++ txt
-      },
-      LexedBool(true) => {
-        if (!lastItemDot) fail "Invalid Toml Key"
-        keyBuffer = keyBuffer ++ "true"
-      },
-      LexedBool(false) => {
-        if (!lastItemDot) fail "Invalid Toml Key"
-        keyBuffer = keyBuffer ++ "false"
-      },
-      Literal(['.']) => {
-        if (lastItemDot) fail "Invalid Toml Key"
-        matchedDot = true
-        keyPath = [ keyBuffer, ...keyPath]
-        keyBuffer = ""
-      },
-      Literal(chars) => {
-        // Validate
-        List.forEach((char) => {
-          if (!isValidKeyChar(char)) fail "Invalid Toml Key"
-          keyBuffer = keyBuffer ++ Char.toString(char)
-        }, chars)
-      },
-      // Invalid
-      _ => fail "Invalid Toml Key",
-    }
-    lastItemDot = matchedDot
-  }, keyLexemes)
-  // Append The Last Key Buffer
-  if (String.byteLength(keyBuffer) > 0)
-    keyPath = [ keyBuffer, ...keyPath]
-  // Return The KeyPath
-  List.reverse(keyPath)
-}
-let rec writeTable = (rootTable, keyPath, value) => {
-  // TODO: Rewrite This Completely
-  // TODO: Validate This
-  match (keyPath) {
-    [ pathItem ] => match (rootTable) {
-      TomlTable(tableContents) => {
-        let hasKeyPath = List.some(((keyName, _)) => keyName == pathItem, tableContents)
-        // If Value Is A Table Or Array Merge
-        if (hasKeyPath) {
-          let mut hasFoundItem = false
-          TomlTable((List.map(((keyName, keyValue)) => {
-            if (!hasFoundItem && keyName == pathItem) {
-              hasFoundItem = true
-              match (keyValue) {
-                TomlTable(contents) => {
-                  match (value) {
-                    TomlTable(newContents) => {
-                      (keyName, TomlTable(List.append(contents, newContents)))
-                    },
-                    _ => fail "Invalid Toml Table Write"
+},
+parseFalseLiteral = parserState => {
+  match (expectCodePointAndAdvance(0x66, parserState)) {
+    // 'f'
+    Some(e) => Err(e),
+    None => {
+      match (expectCodePointAndAdvance(0x61, parserState)) {
+        // 'a'
+        Some(e) => Err(e),
+        None => {
+          match (expectCodePointAndAdvance(0x6C, parserState)) {
+            // 'l'
+            Some(e) => Err(e),
+            None => {
+              match (expectCodePointAndAdvance(0x73, parserState)) {
+                // 's'
+                Some(e) => Err(e),
+                None => {
+                  match (expectCodePointAndAdvance(0x65, parserState)) {
+                    // 'e'
+                    Some(e) => Err(e),
+                    None => Ok(TomlBool(false)),
                   }
                 },
-                _ => fail "Invalid Toml Table Write"
               }
-            } else (keyName, keyValue)
-          }, tableContents)))
-        } else {
-          // Search Table
-          TomlTable(List.append(tableContents, [ (pathItem, value) ]))
-        }
-      },
-      _ => fail "Invalid Toml Array Write"
-    },
-    [ pathItem, ...rest ] => match (rootTable) {
-      TomlTable(tableContents) => {
-        // Search Table
-        let hasSubTable = List.some(((keyName, _)) => keyName == pathItem, tableContents)
-        match (hasSubTable) {
-          true => {
-            let mut hasWritten = false
-            TomlTable(List.map(((keyName, keyValue)) => {
-              if (keyName == pathItem && !hasWritten) {
-                hasWritten = true
-                (keyName, writeTable(keyValue, rest, value))
-              } else (keyName, keyValue)
-            }, tableContents))
-          },
-          false => {
-            TomlTable(List.append(tableContents, [ (pathItem, writeTable(TomlTable([]), rest, value)) ]))
+            },
           }
-        }
-      },
-      _ => fail "Invalid Toml Array Write"
+        },
+      }
     },
-    [] => fail "Empty KeyPath"
   }
-}
-// Parsers
-let rec parseValue = (buffer) => {
-  match (buffer) {
-    // Objects
-    // Inline-Table
-    [ Cbo, ...rest ] => {
-      let mut buffer = rest
-      // Parse Values
-      let mut canDoAnother = true
-      let mut rootTable = TomlTable([])
-      while (true) {
-        match (buffer) {
-          [ LineBreak, ...rest ] => {
-            buffer = rest
-          },
-          [ Comma, ...rest ] => {
-            buffer = rest
-            canDoAnother = true
-          },
-          [ Cbc, ...rest ] => {
-            buffer = rest
-            break
-          },
-          // TODO: Handle Keys With Strings
-          _ => {
-            canDoAnother = false
-            // Parse Key
-            let mut keyTokens = []
-            while (true) {
-              match (buffer) {
-                [ Eq, ...rest ] => {
-                  buffer = rest
-                  break
-                },
-                [item, ...rest] => {
-                  buffer = rest
-                  keyTokens = [item, ...keyTokens]
-                },
-                [] => fail "Invalid Toml Inline Table"
-              }
-            }
-            // Parse Key
-            let valueKey = parseTableOrNameKey(List.reverse(keyTokens))
-            // Parse Value
-            let (value, rest) = parseValue(buffer)
-            buffer = rest
-            // Write To Current Table
-            rootTable = writeTable(rootTable, valueKey, value)
-          }
-        }
-      }
-      (rootTable, buffer)
-    },
-    // Inline-Array
-    [ Sbo, ...rest ] => {
-      let mut buffer = rest
-      let mut values = []
-      // Parse Values
-      let mut canDoAnother = true
-      while (true) {
-        match (buffer) {
-          [ LineBreak, ...rest ] => {
-            buffer = rest
-          },
-          [ Comma, ...rest ] => {
-            buffer = rest
-            canDoAnother = true
-          },
-          [ Sbc, ...rest ] => {
-            buffer = rest
-            break
-          },
-          _ when canDoAnother => {
-            canDoAnother = false
-            let (value, rest) = parseValue(buffer)
-            buffer = rest
-            values = [ value, ...values]
-          },
-          // Invalid
-          _ => fail "Invalid Toml Array"
-        }
-      }
-      (TomlArray(List.reverse(values)), buffer)
-    },
-    // Strings
-    [ LexedLiteralString(literal), ...rest ] => (TomlString(literal), rest),
-    [ LexedLiteralMultiLineString(literal), ...rest ] => (TomlString(literal), rest),
-    [ LexedBasicString(literal), ...rest ] => (TomlString(literal), rest),
-    [ LexedBasicMultiLineString(literal), ...rest ] => (TomlString(literal), rest),
-    // Parse Literals
-    [LexedBool(bool), ...rest ] => (TomlBool(bool), rest),
-    // TODO: DateTime
-    // Float
-    [Literal(float),...rest] when isFloat(float) => {
-      match (Number.parseFloat(String.implode(Array.fromList(float)))) {
-        Ok(float) => (TomlFloat(float), rest),
-        Err(_) => fail "Invalid Toml Float"
-      }
-    },
-    // Number
-    [Literal(int),...rest] when isNumber(int) => {
-      let int = match (int) {
-        [ '+', ...rest ] => String.implode(Array.fromList(rest)),
-        _ => String.implode(Array.fromList(int)),
-      }
-      match (Number.parseInt(int, 10)) {
-        Ok(int) => (TomlInt(int), rest),
-        Err(_) => fail "Invalid Toml Integer"
-      }
-    },
-    // Unknown
-    _ => fail "Unknown Value"
+},
+parseNumberLiteral = parserState => {
+  let buffer = parserState.bufferParse
+  Buffer.clear(buffer)
+  // First char can optionally be a minus sign.
+  let mut c = parserState.currentCodePoint
+  let mut isFloat = false
+  let mut base = 10
+  let mut leadingZero = false
+  let isNegative = c == 0x2D
+  let hasLeadingPositive = c == 0x2B
+  // '-' || '+'
+  if (isNegative || hasLeadingPositive) {
+    c = next(parserState)
   }
-}
-// Public Api
-provide let fromString = (str) => {
-  // Lex
-  let mut buffer = lexToml(str)
-  // Parse
-  let mut keyPath = []
-  let mut rootTable = TomlTable([])
-  while (true) {
-    // Expressions
-    // TODO: Handle Proper Validation
-    match (buffer) {
-      // Break On Empty
-      [] => break,
-      // Table Array
-      [ Sbo, Sbo, ...rest ] => {
-        buffer = rest
-        // Parse Key
-        let mut keyTokens = []
-        while (true) {
-          match (buffer) {
-            [] => fail "Invalid Toml",
-            [ Sbc, Sbc, ...rest ] => {
-              buffer = rest
-              break
-            },
-            [item, ...rest] => {
-              buffer = rest
-              keyTokens = [item, ...keyTokens]
-            }
+  // Handle Parsing Numeric Half
+  // After that, the first/second char can only be a decimal digit ('0'..'9').
+  match (c) {
+    // nan
+    0x6E => { // 'n'
+      next(parserState)
+      let result = match (expectCodePointAndAdvance(0x61, parserState)) {
+        // 'a'
+        Some(e) => Err(e),
+        None => {
+          match (expectCodePointAndAdvance(0x6E, parserState)) {
+            // 'n'
+            Some(e) => Err(e),
+            None => Ok(TomlFloat(NaN)),
           }
-        }
-        // Parse Key
-        keyPath = parseTableOrNameKey(List.reverse(keyTokens))
-        // Write Current Table
-        rootTable = writeTable(rootTable, keyPath, TomlArray([]))
-        // TODO: Handle Writing To Arrays
-      },
-      // Table
-      [ Sbo, ...rest ] => {
-        buffer = rest
-        // Parse Key
-        let mut keyTokens = []
-        while (true) {
-          match (buffer) {
-            [ Sbc, ...rest ] => {
-              buffer = rest
-              break
-            },
-            [item, ...rest] => {
-              buffer = rest
-              keyTokens = [item, ...keyTokens]
-            },
-            [] => fail "Invalid Toml"
-          }
-        }
-        // Parse Key
-        keyPath = parseTableOrNameKey(List.reverse(keyTokens))
-        // Write To Current Table
-        rootTable = writeTable(rootTable, keyPath, TomlTable([]))
-      },
-      // Line Break
-      [ LineBreak, LineBreak, ...rest ] => {
-        buffer = rest
-        // Reset Current Table Name
-        keyPath = []
-      },
-      [ LineBreak, ...rest ] => buffer = rest,
-      // Key Value
-      _ => {
-        // Parse Key
-        let mut keyTokens = []
-        while (true) {
-          match (buffer) {
-            [ Eq, ...rest ] => {
-              buffer = rest
-              break
-            },
-            [item, ...rest] => {
-              buffer = rest
-              keyTokens = [item, ...keyTokens]
-            },
-            [] => fail "Invalid Toml"
-          }
-        }
-        // Parse Key
-        let valueKey = parseTableOrNameKey(List.reverse(keyTokens))
-        // Parse Value
-        let (value, rest) = parseValue(buffer)
-        buffer = rest
-        // Write To Current Table
-        rootTable = writeTable(rootTable, List.append(keyPath, valueKey), value)
+        },
       }
+      return result
+    },
+    // inf
+    0x69 => { // 'i'
+      next(parserState)
+      let result = match (expectCodePointAndAdvance(0x6E, parserState)) {
+        // 'n'
+        Some(e) => Err(e),
+        None => {
+          match (expectCodePointAndAdvance(0x66, parserState)) {
+            // 'f'
+            Some(e) => Err(e),
+            None => Ok(TomlFloat(Infinity * (if (isNegative) -1.0 else 1.0))),
+          }
+        },
+      }
+      return result
+    },
+    0x30 => { // '0'
+      // Toml doesn't allow numbers with additional leading zeros like
+      // "01". Which means that if a number starts with zero then the
+      // integer part is just zero and the next one can only be one of
+      // '.', 'e' or 'E'. In any case all that needs to be done here is
+      // to advance over the zero character and proceed to the optional
+      // fractional and exponential parts. If another digit follows then
+      // a parsing error will occur as expected, but implicitly because
+      // this function finishes with the parser positioned on a digit
+      // and not on a token expected after a number like ',', ']', '}' or
+      // EOF.
+      addCharFromCodePoint(c, buffer)
+      c = next(parserState)
+      leadingZero = true
+    },
+    x when x >= 0x31 && x <= 0x39 && base == 10 => { // '1'..'9'
+      let mut lastDigit = false
+      for (;;) {
+        if (c != 0x5F) addCharFromCodePoint(c, buffer)
+        c = next(parserState)
+        // TODO: Validate _ appears between two digits
+        if (c < 0x30 || c > 0x39 && c != 0x5F) {
+          break
+        }
+      }
+      void
+    },
+    unexpectedCodePoint => {
+      // The integer part of the number has to have at least one digit.
+      // JSON doesn't allow numbers starting with decimal separator like ".1".
+      let detail = "expected a decimal digit, found " ++
+        formatCodePointOrEOF(unexpectedCodePoint)
+      return Err(buildUnexpectedTokenError(parserState, detail))
+    },
+  }
+  // Handle Other Number Types
+  if (leadingZero) {
+    match (c) {
+      0x78 | 0x58 => { // 'x' || 'X'
+        Buffer.addChar('x', buffer)
+        base = 16
+        c = next(parserState)
+        for (;;) {
+          addCharFromCodePoint(c, buffer)
+          c = next(parserState)
+          // TODO: Validate _ appears between two digits
+          if (
+            (c < 0x30 ||
+              c > 0x39 && c < 0x41 ||
+              c > 0x46 && c < 0x61 ||
+              c > 0x66) &&
+            c != 0x5F
+          ) break
+        }
+      },
+      0x4F | 0x6F => { // 'o' || 'O'
+        Buffer.addChar('o', buffer)
+        base = 8
+        c = next(parserState)
+        for (;;) {
+          addCharFromCodePoint(c, buffer)
+          c = next(parserState)
+          // TODO: Validate _ appears between two digits
+          if (c < 0x30 || c > 0x37 && c != 0x5F) break
+        }
+      },
+      0x42 | 0x62 => { // 'b' || 'B'
+        Buffer.addChar('b', buffer)
+        base = 2
+        c = next(parserState)
+        for (;;) {
+          addCharFromCodePoint(c, buffer)
+          c = next(parserState)
+          // TODO: Validate _ appears between two digits
+          if (c < 0x30 || c > 0x31 && c != 0x5F) break
+        }
+      },
+      _ => void,
     }
   }
-  // Return Parsed
-  Ok(rootTable)
+  // Optional fractional part of the number.
+  if (base == 10 && c == 0x2E) { // '.'
+    isFloat = true
+    Buffer.addChar('.', buffer)
+    c = next(parserState)
+    // TODO: Validate _ appears between two digits
+    for (; c >= 0x30 && c <= 0x39 || c == 0x5F;) {
+      if (c != 0x5F) addCharFromCodePoint(c, buffer)
+      c = next(parserState)
+    }
+  }
+  // Optional exponential part of the number.
+  if (base == 10 && c == 0x65 || c == 0x45) { // 'e' or 'E'
+    isFloat = true
+    Buffer.addChar('e', buffer)
+    c = next(parserState)
+    // can start with optional plus or minus sign
+    match (c) {
+      0x2D => { // '-'
+        c = next(parserState)
+        Buffer.addChar('-', buffer)
+      },
+      0x2B => { // '+'
+        c = next(parserState)
+      },
+      _ => void,
+    }
+    // followed by one or more digits (0-9)
+    // TODO: Validate _ appears between two digits
+    for (; c >= 0x30 && c <= 0x39 || c == 0x5F;) {
+      if (c != 0x5F) addCharFromCodePoint(c, buffer)
+      c = next(parserState)
+    }
+
+    void
+  }
+  // Note that unlike all other Toml value types there's no explicit ending
+  // character like ('"' for strings, ']' for arrays,'}' for objects etc). We
+  // just leave the parser state at current position and the reading of next
+  // token will succeed or fail, but number parsing just ends here.
+
+  return match (isFloat) {
+    false when base == 10 => {
+      let result = atoiFast(buffer)
+      Ok(TomlInt(if (isNegative) result * -1 else result))
+    },
+    false => {
+      let str = Buffer.toString(buffer)
+      match (Number.parseInt(str, base)) {
+        Err(err) => fail "Impossible1",
+        Ok(result) => {
+          Ok(TomlInt(if (isNegative) result * -1 else result))
+        },
+      }
+    },
+    true => {
+      let str = Buffer.toString(buffer)
+      match (Number.parseFloat(str)) {
+        Err(err) => fail "Impossible2",
+        Ok(result) => {
+          Ok(TomlFloat(if (isNegative) result * -1 else result))
+        },
+      }
+    },
+  }
+},
+parseBasicStringLiteral = (parserState, allowMultiLine) => {
+  next(parserState)
+  let strBuffer = parserState.bufferParse
+  Buffer.clear(strBuffer)
+  let mut hasHitContent = false
+  let mut isMultiLine = false
+  while (!isAtEndOfInput(parserState)) {
+    match (parserState.currentCodePoint) {
+      0x22 => { // '"'
+        next(parserState)
+        if (!hasHitContent) {
+          // TODO: I do not know how we should handle if isMultiLine is already true
+          if (parserState.currentCodePoint == 0x22) {
+            next(parserState)
+            isMultiLine = true
+          } else {
+            break
+          }
+        } else {
+          if (isMultiLine) {
+            if (parserState.currentCodePoint == 0x22) {
+              next(parserState)
+              if (parserState.currentCodePoint == 0x22) {
+                next(parserState)
+                break
+              } else {
+                Buffer.addChar('"', strBuffer)
+              }
+            } else {
+              Buffer.addChar('"', strBuffer)
+            }
+          } else {
+            break
+          }
+        }
+      },
+      // Escape Chars
+      0x5C => { // '\'
+        hasHitContent = true
+        next(parserState)
+        match (parserState.currentCodePoint) {
+          0x62 => { // 'b'
+            next(parserState)
+            Buffer.addChar('\u0008', strBuffer) // BackSpace
+          },
+          0x74 => { // 't'
+            next(parserState)
+            Buffer.addChar('\u0009', strBuffer) // Tab
+          },
+          0x6E => { // 'n'
+            next(parserState)
+            Buffer.addChar('\u000A', strBuffer) // LineFeed
+          },
+          0x66 => { // 'f'
+            next(parserState)
+            Buffer.addChar('\u000C', strBuffer) // FormFeed
+          },
+          0x72 => { // 'r'
+            next(parserState)
+            Buffer.addChar('\u000D', strBuffer) // CarriageReturn
+          },
+          0x65 => { // 'e'
+            next(parserState)
+            Buffer.addChar('\u001b', strBuffer) // CarriageReturn
+          },
+          0x22 => { // '"'
+            next(parserState)
+            Buffer.addChar('\u0022', strBuffer) // DoubleQuote
+          },
+          0x5C => { // '\'
+            next(parserState)
+            Buffer.addChar('\u005C', strBuffer) // Backslash
+          },
+          // \xHH       - unicode         (U+00HH)
+          0x78 => { // 'u'
+            next(parserState)
+            let mut codeUnit = 0
+            for (let mut digitIndex = 1; digitIndex >= 0; digitIndex -= 1) {
+              let hexDigitCodePoint = parserState.currentCodePoint
+              let mut digit = hexDigitCodePoint
+              if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
+                digit -= 48
+              } else if (
+                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
+              ) { // A..F
+                digit -= 55 // (65 - 10)
+              } else if (
+                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
+              ) { // a..f
+                digit -= 87 // (97 - 10)
+              } else {
+                let digitsSoFar = 3 - digitIndex
+                let detail = "expected exactly 2 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                  runtimeToString(digitsSoFar)
+                return Err(buildUnexpectedTokenError(parserState, detail))
+              }
+              let shift = digitIndex * 4
+              codeUnit = codeUnit | digit << shift
+              next(parserState)
+              void
+            }
+            Buffer.addChar(Char.fromCode(codeUnit), strBuffer)
+          },
+          // \uXXXX     - unicode         (U+XXXX)
+          0x75 => { // 'u'
+            next(parserState)
+            let mut codeUnit = 0
+            for (let mut digitIndex = 3; digitIndex >= 0; digitIndex -= 1) {
+              let hexDigitCodePoint = parserState.currentCodePoint
+              let mut digit = hexDigitCodePoint
+              if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
+                digit -= 48
+              } else if (
+                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
+              ) { // A..F
+                digit -= 55 // (65 - 10)
+              } else if (
+                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
+              ) { // a..f
+                digit -= 87 // (97 - 10)
+              } else {
+                let digitsSoFar = 3 - digitIndex
+                let detail = "expected exactly 4 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                  runtimeToString(digitsSoFar)
+                return Err(buildUnexpectedTokenError(parserState, detail))
+              }
+              let shift = digitIndex * 4
+              codeUnit = codeUnit | digit << shift
+              next(parserState)
+              void
+            }
+            Buffer.addChar(Char.fromCode(codeUnit), strBuffer)
+          },
+          // \UXXXXXXXX - unicode         (U+XXXXXXXX)
+          0x55 => { // 'U'
+            next(parserState)
+            let mut codeUnit = 0
+            for (let mut digitIndex = 7; digitIndex >= 0; digitIndex -= 1) {
+              let hexDigitCodePoint = parserState.currentCodePoint
+              let mut digit = hexDigitCodePoint
+              if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
+                digit -= 48
+              } else if (
+                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
+              ) { // A..F
+                digit -= 55 // (65 - 10)
+              } else if (
+                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
+              ) { // a..f
+                digit -= 87 // (97 - 10)
+              } else {
+                let digitsSoFar = 3 - digitIndex
+                let detail = "expected exactly 8 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                  runtimeToString(digitsSoFar)
+                return Err(buildUnexpectedTokenError(parserState, detail))
+              }
+              let shift = digitIndex * 4
+              codeUnit = codeUnit | digit << shift
+              next(parserState)
+              void
+            }
+            Buffer.addChar(Char.fromCode(codeUnit), strBuffer)
+          },
+          // Handle Trailing \
+          c when isInterTokenWhiteSpace(c) => {
+            let mut valid = false
+            while (true) {
+              let c = parserState.currentCodePoint
+              if (isInterTokenNewLine(c)) valid = true
+              if (!isInterTokenWhiteSpace(c)) {
+                if (!valid) {
+                  let detail = "invalid escape sequence in string literal: " ++
+                    formatCodePointOrEOF(c)
+                  return Err(buildUnexpectedTokenError(parserState, detail))
+                } else {
+                  break
+                }
+              }
+              next(parserState)
+              void
+            }
+          },
+          // Invalid
+          _ => {
+            let detail = "invalid escape sequence in string literal: " ++
+              formatCodePointOrEOF(parserState.currentCodePoint)
+            return Err(buildUnexpectedTokenError(parserState, detail))
+          },
+        }
+      },
+      // Invalid Chars
+      c when (
+        c >= 0x00 && c <= 0x0008 || c >= 0x000A && c <= 0x001F || c == 0x007F
+      ) => {
+        // TODO: Handle CRLF
+        if (isMultiLine && c == 0x000A) {
+          if (hasHitContent) addCharFromCodePoint(c, strBuffer)
+          hasHitContent = true
+          next(parserState)
+          void
+        } else {
+          let detail = "invalid character in string literal: " ++
+            formatCodePointOrEOF(c)
+          return Err(buildUnexpectedTokenError(parserState, detail))
+        }
+      },
+      // Valid Chars
+      c => {
+        hasHitContent = true
+        next(parserState)
+        addCharFromCodePoint(c, strBuffer)
+      },
+    }
+  }
+  return Ok(TomlString(Buffer.toString(strBuffer)))
+},
+parseLitStringLiteral = (parserState, allowMultiLine) => {
+  next(parserState)
+  let strBuffer = parserState.bufferParse
+  Buffer.clear(strBuffer)
+  let mut hasHitContent = false
+  let mut isMultiLine = false
+  while (!isAtEndOfInput(parserState)) {
+    match (parserState.currentCodePoint) {
+      0x27 => { // '"'
+        next(parserState)
+        if (!hasHitContent) {
+          // TODO: I do not know how we should handle if isMultiLine is already true
+          if (parserState.currentCodePoint == 0x27) {
+            next(parserState)
+            isMultiLine = true
+          } else {
+            break
+          }
+        } else {
+          if (isMultiLine) {
+            if (parserState.currentCodePoint == 0x27) {
+              next(parserState)
+              if (parserState.currentCodePoint == 0x27) {
+                next(parserState)
+                break
+              } else {
+                Buffer.addChar('\'', strBuffer)
+              }
+            } else {
+              Buffer.addChar('\'', strBuffer)
+            }
+          } else {
+            break
+          }
+        }
+      },
+      // Invalid Chars
+      // TODO: Determine if these are still the correct invalid chars
+      c when (
+        c >= 0x00 && c <= 0x0008 || c >= 0x000A && c <= 0x001F || c == 0x007F
+      ) => {
+        // TODO: Handle CRLF
+        if (isMultiLine && c == 0x000A) {
+          if (hasHitContent) addCharFromCodePoint(c, strBuffer)
+          hasHitContent = true
+          next(parserState)
+          void
+        } else {
+          let detail = "invalid character in string literal: " ++
+            formatCodePointOrEOF(c)
+          return Err(buildUnexpectedTokenError(parserState, detail))
+        }
+      },
+      // Valid Chars
+      c => {
+        hasHitContent = true
+        next(parserState)
+        addCharFromCodePoint(c, strBuffer)
+      },
+    }
+  }
+  return Ok(TomlString(Buffer.toString(strBuffer)))
+},
+parseArrayLiteral = parserState => {
+  // TODO: Ensure that this conforms to the toml spec
+  match (expectCodePointAndAdvance(0x5B, parserState)) {
+    // '['
+    Some(e) => return Err(e),
+    None => void,
+  }
+  let mut elems = []: List<Toml>
+
+  let mut done = false
+
+  while (!done) {
+    let c = parserState.currentCodePoint
+    match (c) {
+      0x2C => { // ','
+        next(parserState)
+        skipWhiteSpace(parserState)
+      },
+      0x5D => { // ']'
+        next(parserState)
+        done = true
+        break
+      },
+      -1 => {
+        // just end the loop without setting done to true
+        break
+      },
+      _ => {
+        skipWhiteSpace(parserState)
+        match (parseLiteral(parserState)) {
+          Ok(elem) => {
+            elems = [elem, ...elems]
+            void
+          },
+          Err(e) => {
+            return Err(e)
+          },
+        }
+        skipWhiteSpace(parserState)
+      },
+    }
+  }
+  if (done) {
+    return Ok(TomlArray(List.reverse(elems)))
+  } else {
+    return Err(
+      buildUnexpectedTokenError(parserState, "unexpected end of array")
+    )
+  }
+},
+parseTableLiteral = parserState => {
+  match (expectCodePointAndAdvance(0x7B, parserState)) {
+    // '{'
+    Some(e) => return Err(e),
+    None => void,
+  }
+  let mut inlineTable = TomlTable([])
+  // Parse Inside
+  let mut requireMore = false
+  while (true) {
+    skipWhiteSpace(parserState)
+    if (!requireMore) {
+      // Check For End
+      match (parserState.currentCodePoint) {
+        0x7D => { // '}'
+          next(parserState)
+          break
+        },
+        -1 => {
+          return Err(
+            buildUnexpectedTokenError(parserState, "unexpected end of table")
+          )
+        },
+        _ => void,
+      }
+    }
+    requireMore = false
+    //  Parse Key
+    let key = match (parseKey(parserState)) {
+      Ok(key) => key,
+      Err(err) => return Err(err),
+    }
+    // Parse Equal
+    match (expectCodePointAndAdvance(0x3D, parserState)) {
+      // =
+      Some(e) => return Err(e),
+      None => void,
+    }
+    // Parse Value
+    let value = match (parseLiteral(parserState)) {
+      Ok(value) => value,
+      Err(err) => return Err(err),
+    }
+    // TODO: Do Not Allow Duplicates
+    // TODO: Look into weather . keys are allowed
+    inlineTable = match (writeTable(key, value, inlineTable)) {
+      Ok(table) => table,
+      Err(err) => return Err(err),
+    }
+    skipWhiteSpace(parserState)
+    // Check For More
+    match (parserState.currentCodePoint) {
+      0x2C => { // ','
+        next(parserState)
+        void
+      },
+      0x7D => { // '}'
+        next(parserState)
+        break
+      },
+      -1 => {
+        return Err(
+          buildUnexpectedTokenError(parserState, "unexpected end of table")
+        )
+      },
+      c => {
+        return Err(
+          buildUnexpectedTokenError(
+            parserState,
+            "expected ',' or '}' after value in table, found " ++
+            formatCodePointOrEOF(c)
+          )
+        )
+      },
+    }
+  }
+  // Return Table
+  match (inlineTable) {
+    TomlTable(table) => return Ok(TomlTable(table)),
+    // This is literally impossible
+    _ => fail "Impossible3",
+  }
+},
+parseLiteral = parserState => {
+  skipSpace(parserState)
+  match (parserState.currentCodePoint) {
+    0x74 => parseTrueLiteral(parserState), // 't'
+    0x66 => parseFalseLiteral(parserState), // 'f'
+    0x5B => parseArrayLiteral(parserState), // '['
+    0x7B => parseTableLiteral(parserState), // '{'
+    0x2B => parseNumberLiteral(parserState), // '+'
+    0x2D => parseNumberLiteral(parserState), // '-'
+    0x69 => parseNumberLiteral(parserState), // 'i'
+    0x6E => parseNumberLiteral(parserState), // 'n'
+    c when c >= 0x30 && c <= 0x39 =>
+      parseNumberLiteral(parserState), // '0'..'9'
+    0x22 => parseBasicStringLiteral(parserState, true), // '"'
+    0x27 => parseLitStringLiteral(parserState, true), // '''
+    c => {
+      let detail = "expected start of a Toml value, found " ++
+        formatCodePointOrEOF(c)
+      Err(buildUnexpectedTokenError(parserState, detail))
+    },
+  }
+}
+
+// Parsing
+let parseTableHeader = parserState => {
+  next(parserState)
+  let mut isArrayHeader = false
+  if (parserState.currentCodePoint == 0x5B) {
+    next(parserState)
+    isArrayHeader = true
+  }
+  let key = match (parseKey(parserState)) {
+    Ok(key) => key,
+    Err(err) => return Err(err),
+  }
+  if (isArrayHeader) {
+    match (expectCodePointAndAdvance(0x5D, parserState)) {
+      Some(err) => return Err(err),
+      None => void,
+    }
+  }
+  match (expectCodePointAndAdvance(0x5D, parserState)) {
+    Some(err) => return Err(err),
+    None => void,
+  }
+  // Return Key
+  return Ok((key, isArrayHeader))
+}
+let parseKeyValue = parserState => {
+  //  Parse Key
+  let key = match (parseKey(parserState)) {
+    Ok(key) => key,
+    Err(err) => return Err(err),
+  }
+  // Parse Equal
+  match (expectCodePointAndAdvance(0x3D, parserState)) {
+    // =
+    Some(e) => return Err(e),
+    None => void,
+  }
+  // Parse Value
+  let value = match (parseLiteral(parserState)) {
+    Ok(value) => value,
+    Err(err) => return Err(err),
+  }
+  return Ok((key, value))
+}
+let parseFile = parserState => {
+  // Create Our Table
+  // TODO: Handle No Repeat Name Validation
+  let mut rootTable = TomlTable([])
+  let mut rootKey = []
+  // Parse The File
+  let mut inComment = false
+  while (!isAtEndOfInput(parserState)) {
+    // TODO: Implement Parsing, Parse Table Header, Parse Array Header
+    match (parserState.currentCodePoint) {
+      c when inComment => {
+        next(parserState)
+        if (isInterTokenNewLine(c)) inComment = false
+      },
+      // [
+      0x5B =>
+        match (parseTableHeader(parserState)) {
+          Err(err) => return Err(err),
+          Ok((key, isArrayHeader)) => {
+            if (isArrayHeader) fail "Not Yet Implemented Array Header"
+            rootKey = key
+          },
+        },
+      // #
+      0x23 => {
+        next(parserState)
+        inComment = true
+      },
+      c when isInterTokenWhiteSpace(c) => {
+        // TODO: if c is a newline break the current table
+        skipWhiteSpace(parserState)
+      },
+      _ => {
+        match (parseKeyValue(parserState)) {
+          Err(err) => return Err(err),
+          Ok((path, value)) => {
+            match (writeTable(List.append(rootKey, path), value, rootTable)) {
+              Ok(currentTable) => rootTable = currentTable,
+              Err(err) => return Err(err),
+            }
+          },
+        }
+      },
+    }
+  }
+  // Return Our Table
+  match (rootTable) {
+    TomlTable(table) => return Ok(TomlTable(table)),
+    // This is literally impossible
+    _ => fail "Impossible4",
+  }
+}
+// Entry
+provide let fromString: String -> Result<Toml, TOMLParseError> =
+  (
+    str: String,
+  ) => {
+  let parserState = {
+    string: str,
+    bufferParse: Buffer.make(16),
+    currentCodePoint: readCodePoint(0, str),
+    pos: 0,
+    bytePos: 0,
+  }: TOMLParserState
+
+  let root = parseFile(parserState)
+
+  skipWhiteSpace(parserState)
+
+  if (isAtEndOfInput(parserState)) {
+    root
+  } else {
+    match (root) {
+      Ok(_) => {
+        let detail = "expected end of input, found " ++
+          formatCodePointOrEOF(parserState.currentCodePoint)
+        Err(buildUnexpectedTokenError(parserState, detail))
+      },
+      e => e,
+    }
+  }
 }
