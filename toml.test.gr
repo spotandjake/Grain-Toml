@@ -473,21 +473,20 @@ infinity_plus = +inf
       ]
     )
   )
-// TODO: Figure out why this wont work
-// assert fromString(
-//   "
-// longpi = 3.141592653589793
-// neglongpi = -3.141592653589793
-// "
-// ) ==
-//   Ok(
-//     TomlTable(
-//       [
-//         ("longpi", TomlFloat(3.141592653589793)),
-//         ("neglongpi", TomlFloat(-3.141592653589793)),
-//       ]
-//     )
-//   )
+assert fromString(
+  "
+longpi = 3.141592653589793
+neglongpi = -3.141592653589793
+"
+) ==
+  Ok(
+    TomlTable(
+      [
+        ("longpi", TomlFloat(3.141592653589793)),
+        ("neglongpi", TomlFloat(-3.141592653589793)),
+      ]
+    )
+  )
 assert fromString(
   "
 before = 3_141.5927
