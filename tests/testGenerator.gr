@@ -12,9 +12,13 @@ include "bytes"
 
 include "./json"
 from Json use { type JSON, parse }
+// TODO: Output all tests with a \r\n over a \n
 // Types
 record TomlFlags {
   mut hasTime: Bool,
+}
+enum TomlVersion {
+  TomlNext,
 }
 // Helpers
 let readFile = filePath => {
@@ -292,13 +296,13 @@ let buildValidTest = (grainTestProgram, files) => {
       let flags = { hasTime: false, }
       let output = parseJsonToml(output, flags)
       let mut generateCode = true
-      if (flags.hasTime) {
-        generateCode = false
-        Buffer.addString(
-          "// TODO: " ++ inputPath ++ " - Support Dates \n",
-          grainTestProgram
-        )
-      }
+      // if (flags.hasTime) {
+      //   generateCode = false
+      //   Buffer.addString(
+      //     "// TODO: " ++ inputPath ++ " - Support Dates \n",
+      //     grainTestProgram
+      //   )
+      // }
       // Write Code
       if (generateCode) {
         Buffer.addString("assert fromString(\"", grainTestProgram)
@@ -315,7 +319,30 @@ let buildValidTest = (grainTestProgram, files) => {
     void
   }, files)
 }
+let skipVersionTests = (version, tests) => {
+  let exclusions = match (version) {
+    TomlNext =>
+      [
+        "invalid/datetime/no-secs", // Times without seconds is no longer invalid.
+        "invalid/string/basic-byte-escapes", // \x is now valid.
+        "invalid/inline-table/trailing-comma",
+        "invalid/inline-table/linebreak-1",
+        "invalid/inline-table/linebreak-2",
+        "invalid/inline-table/linebreak-3",
+        "invalid/inline-table/linebreak-4",
+        "invalid/key/special-character", // Unicode can now be in bare keys.
+      ],
+  }
+  // Filter
+  List.map(((testSuite, tests)) => {
+    let tests = Array.filter(((testInput, testOutput)) => {
+      !List.some(out => String.contains(out, testInput), exclusions)
+    }, tests)
+    (testSuite, tests)
+  }, tests)
+}
 // Config
+let version = TomlNext
 let invalidDirectory = "./invalid/"
 let validDirectory = "./valid/"
 // Create File
@@ -357,12 +384,14 @@ Buffer.addString("include \"result\"\n", grainTestProgram)
 Buffer.addString("from Toml use { fromString, type Toml }\n", grainTestProgram)
 // Generate Invalid Tests
 let files = getTests(invalidDirectory, "invalid", false)
+let files = skipVersionTests(version, files)
 Buffer.addString("\n", grainTestProgram)
 Buffer.addString("// Invalid Tests \n", grainTestProgram)
 Buffer.addString("\n", grainTestProgram)
 buildInValidTest(grainTestProgram, files)
 // Generate Valid Tests
 let files = getTests(validDirectory, "valid", true)
+let files = skipVersionTests(version, files)
 Buffer.addString("\n", grainTestProgram)
 Buffer.addString("// Valid Tests \n", grainTestProgram)
 Buffer.addString("\n", grainTestProgram)
