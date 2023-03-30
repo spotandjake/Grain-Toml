@@ -1,0 +1,71 @@
+module Tests
+
+include "../toml"
+include "list"
+include "buffer"
+include "array"
+include "string"
+from Toml use { type Toml, fromString }
+// Sort
+let rec innerSortToml = tomlTree => {
+  match (tomlTree) {
+    TomlTable(tableItems) => {
+      let tableItems = List.map(((key, value)) =>
+        (key, innerSortToml(value)), tableItems)
+      let tableItems = List.sort(((keyA, _), (keyB, _)) => {
+        compare(keyA, keyB)
+      }, tableItems)
+      TomlTable(tableItems)
+    },
+    TomlArray(arrItems) => {
+      let arrItems = List.map(innerSortToml, arrItems)
+      TomlArray(arrItems)
+    },
+    _ => tomlTree,
+  }
+}
+let sortToml = tomlTree => {
+  match (tomlTree) {
+    Ok(tomlTree) => Ok(innerSortToml(tomlTree)),
+    Err(err) => Err(err),
+  }
+}
+let log = (a, b) => {
+  // Sort
+  let a = sortToml(a)
+  let b = sortToml(b)
+  // Output
+  print(a)
+  print(b)
+  print(a == b)
+  // Stringify
+  let a = toString(a)
+  let b = toString(b)
+  // Handle Matching
+  let str = Buffer.make(0)
+  let a = String.explode(a)
+  let b = String.explode(b)
+  let ab = Array.zip(a, b)
+  // Output
+  Array.forEach(((a, b)) => {
+    if (a == b) Buffer.addString("\x1b[32m", str)
+    else Buffer.addString("\x1b[31m", str)
+    Buffer.addChar(a, str)
+    Buffer.addString("\x1b[0m", str)
+  }, ab)
+  print(Buffer.toString(str))
+}
+let a = fromString(
+    "utc1  = 1987-07-05T17:45:56.1234Z\nutc2  = 1987-07-05T17:45:56.6Z\nwita1 = 1987-07-05T17:45:56.1234+08:00\nwita2 = 1987-07-05T17:45:56.6+08:00\n"
+  )
+let b = Ok(
+      TomlTable(
+        [
+          ("utc1", TomlDateTime("1987-07-05T17:45:56.1234Z")),
+          ("utc2", TomlDateTime("1987-07-05T17:45:56.6000Z")),
+          ("wita1", TomlDateTime("1987-07-05T17:45:56.1234+08:00")),
+          ("wita2", TomlDateTime("1987-07-05T17:45:56.6000+08:00")),
+        ]
+      )
+    )
+log(a, b)
