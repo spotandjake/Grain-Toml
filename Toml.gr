@@ -292,6 +292,12 @@ let isValidTomlChar = (codePoint: Number) => {
   // Default True
   return isValid
 }
+let isValidCommentChar = (codePoint: Number) => {
+  print(codePoint)
+  if (!isValidTomlChar(codePoint)) return false
+  if (codePoint == 0x00 || codePoint >= 0x0A && codePoint <= 0x0D) return false
+  return true
+}
 
 let skipNewLine = (parserState: TOMLParserState) => {
   // isAtEndOfInput is not strictly necessary here
@@ -447,11 +453,11 @@ let skipComment = parserState => {
       // Anything else
       _ when !hasHitComment => break,
       c => {
-        if (c == 0000 || c >= 0x000A && c <= 0x000D || !isValidTomlChar(c)) {
+        if (!isValidCommentChar(c)) {
           return Err(
             buildUnexpectedTokenError(
               parserState,
-              "Unexpected Token In Comment"
+              "Unexpected Token In Comment: " ++ formatCodePointOrEOF(c)
             )
           )
         }

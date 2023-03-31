@@ -468,23 +468,23 @@ assert Result.isErr(
 // assert Result.isErr(fromString("comment-lf = \"ctrl-P\" # \n"))
 // assert Result.isErr(fromString("comment-null = \"null\" #  \n"))
 // assert Result.isErr(fromString("comment-us = \"ctrl-_\" # \n"))
-// assert Result.isErr(fromString("multi-del = \"\"\"null\"\"\"\n"))
-// assert Result.isErr(fromString("multi-lf = \"\"\"null\"\"\"\n"))
-// assert Result.isErr(fromString("multi-null = \"\"\"null \"\"\"\n"))
-// assert Result.isErr(fromString("multi-us = \"\"\"null\"\"\"\n"))
-// assert Result.isErr(fromString("rawmulti-del = '''null'''\n"))
-// assert Result.isErr(fromString("rawmulti-lf = '''null'''\n"))
-// assert Result.isErr(fromString("rawmulti-null = '''null '''\n"))
-// assert Result.isErr(fromString("rawmulti-us = '''null'''\n"))
-// assert Result.isErr(fromString("rawstring-del = 'null'\n"))
-// assert Result.isErr(fromString("rawstring-lf = 'null'\n"))
-// assert Result.isErr(fromString("rawstring-null = 'null '\n"))
-// assert Result.isErr(fromString("rawstring-us = 'null'\n"))
-// assert Result.isErr(fromString("string-bs = \"backspace\"\n"))
-// assert Result.isErr(fromString("string-del = \"null\"\n"))
-// assert Result.isErr(fromString("string-lf = \"null\"\n"))
-// assert Result.isErr(fromString("string-null = \"null \"\n"))
-// assert Result.isErr(fromString("string-us = \"null\"\n"))
+assert Result.isErr(fromString("multi-del = \"\"\"null\"\"\"\n"))
+assert Result.isErr(fromString("multi-lf = \"\"\"null\"\"\"\n"))
+assert Result.isErr(fromString("multi-null = \"\"\"null \"\"\"\n"))
+assert Result.isErr(fromString("multi-us = \"\"\"null\"\"\"\n"))
+assert Result.isErr(fromString("rawmulti-del = '''null'''\n"))
+assert Result.isErr(fromString("rawmulti-lf = '''null'''\n"))
+assert Result.isErr(fromString("rawmulti-null = '''null '''\n"))
+assert Result.isErr(fromString("rawmulti-us = '''null'''\n"))
+assert Result.isErr(fromString("rawstring-del = 'null'\n"))
+assert Result.isErr(fromString("rawstring-lf = 'null'\n"))
+assert Result.isErr(fromString("rawstring-null = 'null '\n"))
+assert Result.isErr(fromString("rawstring-us = 'null'\n"))
+assert Result.isErr(fromString("string-bs = \"backspace\"\n"))
+assert Result.isErr(fromString("string-del = \"null\"\n"))
+assert Result.isErr(fromString("string-lf = \"null\"\n"))
+assert Result.isErr(fromString("string-null = \"null \"\n"))
+assert Result.isErr(fromString("string-us = \"null\"\n"))
 
 // bool
 assert Result.isErr(fromString("a = falsify\n"))
@@ -1724,25 +1724,29 @@ assert sortToml(
   )
 assert sortToml(fromString("flt8 = 224_617.445_991_228\n")) ==
   sortToml(Ok(TomlTable([("flt8", TomlFloat(224617.445991228))])))
-assert toString(sortToml(
-  fromString(
-    "# infinity\nsf1 = inf  # positive infinity\nsf2 = +inf # positive infinity\nsf3 = -inf # negative infinity\n\n# not a number\nsf4 = nan  # actual sNaN/qNaN encoding is implementation-specific\nsf5 = +nan # same as `nan`\nsf6 = -nan # valid, actual encoding is implementation-specific\n"
+assert toString(
+  sortToml(
+    fromString(
+      "# infinity\nsf1 = inf  # positive infinity\nsf2 = +inf # positive infinity\nsf3 = -inf # negative infinity\n\n# not a number\nsf4 = nan  # actual sNaN/qNaN encoding is implementation-specific\nsf5 = +nan # same as `nan`\nsf6 = -nan # valid, actual encoding is implementation-specific\n"
+    )
   )
-)) ==
-  toString(sortToml(
-    Ok(
-      TomlTable(
-        [
-          ("sf1", TomlInt(Infinity)),
-          ("sf2", TomlInt(Infinity)),
-          ("sf3", TomlFloat(-Infinity)),
-          ("sf4", TomlFloat(NaN)),
-          ("sf5", TomlFloat(NaN)),
-          ("sf6", TomlFloat(NaN)),
-        ]
+) ==
+  toString(
+    sortToml(
+      Ok(
+        TomlTable(
+          [
+            ("sf1", TomlInt(Infinity)),
+            ("sf2", TomlInt(Infinity)),
+            ("sf3", TomlFloat(-Infinity)),
+            ("sf4", TomlFloat(NaN)),
+            ("sf5", TomlFloat(NaN)),
+            ("sf6", TomlFloat(NaN)),
+          ]
+        )
       )
     )
-  ))
+  )
 assert sortToml(
   fromString(
     "name = { first = \"Tom\", last = \"Preston-Werner\" }\npoint = { x = 1, y = 2 }\nanimal = { type.name = \"pug\" }\n"
@@ -3302,25 +3306,29 @@ assert sortToml(
       )
     )
   )
-assert toString(sortToml(
-  fromString(
-    "# We don't encode +nan and -nan back with the signs; many languages don't\n# support a sign on NaN (it doesn't really make much sense).\nnan = nan\nnan_neg = -nan\nnan_plus = +nan\ninfinity = inf\ninfinity_neg = -inf\ninfinity_plus = +inf\n"
+assert toString(
+  sortToml(
+    fromString(
+      "# We don't encode +nan and -nan back with the signs; many languages don't\n# support a sign on NaN (it doesn't really make much sense).\nnan = nan\nnan_neg = -nan\nnan_plus = +nan\ninfinity = inf\ninfinity_neg = -inf\ninfinity_plus = +inf\n"
+    )
   )
-)) ==
-  toString(sortToml(
-    Ok(
-      TomlTable(
-        [
-          ("infinity", TomlInt(Infinity)),
-          ("infinity_neg", TomlFloat(-Infinity)),
-          ("infinity_plus", TomlInt(Infinity)),
-          ("nan", TomlFloat(NaN)),
-          ("nan_neg", TomlFloat(NaN)),
-          ("nan_plus", TomlFloat(NaN)),
-        ]
+) ==
+  toString(
+    sortToml(
+      Ok(
+        TomlTable(
+          [
+            ("infinity", TomlInt(Infinity)),
+            ("infinity_neg", TomlFloat(-Infinity)),
+            ("infinity_plus", TomlInt(Infinity)),
+            ("nan", TomlFloat(NaN)),
+            ("nan_neg", TomlFloat(NaN)),
+            ("nan_plus", TomlFloat(NaN)),
+          ]
+        )
       )
     )
-  ))
+  )
 assert sortToml(
   fromString("longpi = 3.141592653589793\nneglongpi = -3.141592653589793\n")
 ) ==
