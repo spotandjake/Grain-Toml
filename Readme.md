@@ -1,58 +1,14 @@
 # Grain-Toml
-This repo contains a very basic toml parser written in grain-lang.
+This repo contains a mostly complete toml parser for the grain language. The parser supports the toml `v1.1.0` spec which has not been released yet and is still in motion but it is mostly backwards compatible with the `v1.0.0` spec and should be able to parse most toml files. 
 
 Feel free to use this in your project or as inspiration for a better toml-parser.
 
 # To Be Done
-This library is by no means completes, Some Notable Things Missings Are
-+ Array Tables
+This library is by no means completes, Some Notable Things Missing Are
++ Fix Key Duplication Detection
 + Date Support
+  + Consider representing date's as numbers until grain has actual date support
+  + Validate Seconds Against Leap Seconds
+  + Allow Optional Seconds
 + Validation
-  + Validate Keys Only Occur Once
-  
-## Completed
-+ [ ] Parsing
-  + [ ] Array tables
-  + [x] Tables
-  + [ ] Expressions
-    + [x] Parse Comments
-      + [x] Parsing Comments
-      + [x] Allow comments to be parsed at the end of a line
-      + [x] Research allowing comments inside of arrays and tables
-    + [x] Parse Key Values
-    + [x] Parse Tables
-    + [x] Parse Array Tables
-    + [x] Parse keys such as `a.b` in Table headers and Key Value Pairs
-    + [x] Ensure keys are valid
-    + [x] Properly Parse String Keys
-    + [x] Properly handle empty string keys
-    + [ ] Verify things are on newlines
-  + [ ] Toml Values
-    + [x] Booleans
-    + [x] Strings
-      + [x] Basic Strings
-        + [x] Parsing
-        + [x] Normalizing
-      + [x] Basic Multiline Strings
-        + [x] Parsing
-        + [x] Trimming
-      + [x] Literal Strings
-        + [x] Parsing
-      + [x] Literal Multiline Strings
-        + [x] Parsing
-    + [x] Integers
-      + [x] Parsing
-    + [x] Floats
-      + [x] Parsing
-    + [x] Arrays
-      + [x] Parsing
-    + [x] Inline Tables
-      + [x] Parsing
-    + [ ] Date's
-      + [ ] Parsing
-      + [ ] Determine how we want to represent these
-  + [ ] Add Option For A Searchable Api
-+ [ ] Stringify
-+ [ ] Testing
-  + [ ] Parsing
-    + [ ] Run The Toml Verification Tests through to ensure full coverage and compliance with the spec.
+  + Fix Key Duplicate Validation

@@ -7,6 +7,8 @@ include "buffer"
 include "uint8"
 include "number"
 include "array"
+include "Set"
+// TODO: Remove this
 include "map"
 include "runtime/unsafe/wasmi32"
 include "runtime/numberUtils"
@@ -52,6 +54,7 @@ provide enum TOMLParseError {
   DuplicateTomlKey,
   // TODO: Use A String Here Holding The U+xxxxxx value
   InvalidUnicodeScalar(Number),
+  InvalidDateTime(String),
 }
 
 /**
@@ -293,7 +296,6 @@ let isValidTomlChar = (codePoint: Number) => {
   return isValid
 }
 let isValidCommentChar = (codePoint: Number) => {
-  print(codePoint)
   if (!isValidTomlChar(codePoint)) return false
   if (codePoint == 0x00 || codePoint >= 0x0A && codePoint <= 0x0D) return false
   return true
@@ -343,6 +345,33 @@ let atoiFast = buffer => {
       Uint8.toNumber(Buffer.getUint8(i, buffer) - 48us)
   }
   result
+}
+// Validation Functions
+let isLeapYear = year => {
+  year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+let isValidDateInMonth = (year, month, day) => {
+  match (month) {
+    01 => day >= 1 && day <= 31,
+    02 => {
+      if (isLeapYear(year)) {
+        day >= 1 && day <= 29
+      } else {
+        day >= 1 && day <= 28
+      }
+    },
+    03 => day >= 1 && day <= 31,
+    04 => day >= 1 && day <= 30,
+    05 => day >= 1 && day <= 31,
+    06 => day >= 1 && day <= 30,
+    07 => day >= 1 && day <= 31,
+    08 => day >= 1 && day <= 31,
+    09 => day >= 1 && day <= 30,
+    10 => day >= 1 && day <= 31,
+    11 => day >= 1 && day <= 30,
+    12 => day >= 1 && day <= 31,
+    _ => false,
+  }
 }
 // Toml Table
 let rec writeTable =
@@ -411,7 +440,13 @@ let rec writeTable =
               },
               None => (pathItem, TomlTable([])),
             }
-            match (writeTable(rest, tableElement, tableValue, writeArray, overWrite=overWrite)) {
+            match (writeTable(
+              rest,
+              tableElement,
+              tableValue,
+              writeArray,
+              overWrite=overWrite
+            )) {
               Err(err) => Err(err),
               Ok(item) => {
                 let tableItems = match (pathItemIndex) {
@@ -543,7 +578,8 @@ let rec parseKey = parserState => {
       c => break,
     }
   }
-  if (keyHasValue == true) key = [Buffer.toString(parserState.bufferParse), ...key]
+  if (keyHasValue == true)
+    key = [Buffer.toString(parserState.bufferParse), ...key]
   if (List.length(key) == 0 && Buffer.length(parserState.bufferParse) == 0) {
     return Err(TomlInvalidKey)
   }
@@ -653,9 +689,8 @@ parseNumberLiteral = parserState => {
             None => {
               if (isNegative)
                 Ok(TomlFloat(Infinity * (if (isNegative) -1.0 else 1.0)))
-              else
-                Ok(TomlInt(Infinity))
-            }
+              else Ok(TomlInt(Infinity))
+            },
           }
         },
       }
@@ -1259,6 +1294,9 @@ parseArrayLiteral = parserState => {
   while (!done) {
     let c = parserState.currentCodePoint
     match (c) {
+      // '#'
+      0x23 => lastComment = true,
+      // Match Values
       0x2C when !lastComment => { // ','
         lastComment = true
         next(parserState)
@@ -1305,6 +1343,7 @@ parseArrayLiteral = parserState => {
   }
 },
 parseTableLiteral = parserState => {
+  let keyList = Set.make()
   match (expectCodePointAndAdvance(0x7B, parserState)) {
     // '{'
     Some(e) => return Err(e),
@@ -1336,6 +1375,10 @@ parseTableLiteral = parserState => {
       Ok(key) => key,
       Err(err) => return Err(err),
     }
+    // Check If Key Is Duplicate
+    if (Set.contains(List.nth(0, key), keyList)) {
+      return Err(DuplicateTomlKey)
+    }
     // Parse Equal
     match (expectCodePointAndAdvance(0x3D, parserState)) {
       // =
@@ -1347,7 +1390,8 @@ parseTableLiteral = parserState => {
       Ok(value) => value,
       Err(err) => return Err(err),
     }
-    // TODO: Do Not Allow Duplicates
+    // Write Table
+    Set.add(List.nth(0, key), keyList)
     inlineTable = match (writeTable(key, value, inlineTable, false)) {
       Ok(table) => table,
       Err(err) => return Err(err),
@@ -1387,6 +1431,7 @@ parseDateLiteral = parserState => {
   let buffer = parserState.bufferParse
   Buffer.clear(buffer)
   // Collect The Year
+  let mut year = 0
   for (let mut i = 0; i < 4; i += 1) {
     let c = parserState.currentCodePoint
     if (c < 0x30 || c > 0x39) {
@@ -1397,6 +1442,8 @@ parseDateLiteral = parserState => {
         )
       )
     }
+    year *= 10
+    year += c - 0x30
     addCharFromCodePoint(c, buffer)
     next(parserState)
     void
@@ -1407,6 +1454,7 @@ parseDateLiteral = parserState => {
     None => Buffer.addChar('-', buffer),
   }
   // Collect The Month
+  let mut month = 0
   for (let mut i = 0; i < 2; i += 1) {
     let c = parserState.currentCodePoint
     if (c < 0x30 || c > 0x39) {
@@ -1417,9 +1465,14 @@ parseDateLiteral = parserState => {
         )
       )
     }
+    month *= 10
+    month += c - 0x30
     addCharFromCodePoint(c, buffer)
     next(parserState)
     void
+  }
+  if (month < 0 || month > 12) {
+    return Err(InvalidDateTime("Invalid Date, Month must be between 0 and 12"))
   }
   match (expectCodePointAndAdvance(0x2D, parserState)) {
     // '-'
@@ -1427,6 +1480,7 @@ parseDateLiteral = parserState => {
     None => Buffer.addChar('-', buffer),
   }
   // Collect The Date
+  let mut date = 0
   for (let mut i = 0; i < 2; i += 1) {
     let c = parserState.currentCodePoint
     if (c < 0x30 || c > 0x39) {
@@ -1437,9 +1491,14 @@ parseDateLiteral = parserState => {
         )
       )
     }
+    date *= 10
+    date += c - 0x30
     addCharFromCodePoint(c, buffer)
     next(parserState)
     void
+  }
+  if (!isValidDateInMonth(year, month, date)) {
+    return Err(InvalidDateTime("Invalid Date, Date must be valid in the month"))
   }
   // Return The Date
   return Ok(TomlDateLocal(Buffer.toString(buffer)))
@@ -1449,6 +1508,7 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
   let buffer = parserState.bufferParse
   Buffer.clear(buffer)
   // Collect The Hour
+  let mut hour = 0
   for (let mut i = 0; i < 2; i += 1) {
     let c = parserState.currentCodePoint
     if (c < 0x30 || c > 0x39) {
@@ -1459,9 +1519,14 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
         )
       )
     }
+    hour *= 10
+    hour += c - 0x30
     addCharFromCodePoint(c, buffer)
     next(parserState)
     void
+  }
+  if (hour < 0 || hour > 23) {
+    return Err(InvalidDateTime("Invalid Time, Hour must be between 0 and 23"))
   }
   match (expectCodePointAndAdvance(0x3A, parserState)) {
     // ':'
@@ -1469,6 +1534,7 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
     None => Buffer.addChar(':', buffer),
   }
   // Collect The Minute
+  let mut min = 0
   for (let mut i = 0; i < 2; i += 1) {
     let c = parserState.currentCodePoint
     if (c < 0x30 || c > 0x39) {
@@ -1479,11 +1545,17 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
         )
       )
     }
+    min *= 10
+    min += c - 0x30
     addCharFromCodePoint(c, buffer)
     next(parserState)
     void
   }
+  if (min < 0 || min > 59) {
+    return Err(InvalidDateTime("Invalid Time, Minute must be between 0 and 59"))
+  }
   if (allowSeconds) {
+    // TODO: Validate Second Range
     // TODO: Make Seconds Optional
     match (expectCodePointAndAdvance(0x3A, parserState)) {
       // ':'
@@ -1530,12 +1602,24 @@ parseDateTimeLiteral = parserState => {
   }
   // Check For Split
   match (parserState.currentCodePoint) {
-    0x20 => void, // ' '
-    0x54 => void, // 'T'
-    0x74 => void, // 't'
+    0x20 => {
+      next(parserState)
+      if (
+        parserState.currentCodePoint < 0x30 ||
+        parserState.currentCodePoint > 0x39
+      ) return Ok(TomlDateLocal(tomlDate))
+    }, // ' '
+    0x54 => {
+      next(parserState)
+      void
+    }, // 'T'
+    0x74 => {
+      next(parserState)
+      void
+    }, // 't'
     _ => return Ok(TomlDateLocal(tomlDate)),
   }
-  next(parserState)
+
   // If We Have The Split Parse The Time
   let tomlTime = parseTimeLiteral(parserState)
   let tomlTime = match (tomlTime) {

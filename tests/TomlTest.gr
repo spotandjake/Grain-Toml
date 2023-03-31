@@ -301,17 +301,17 @@ assert Result.isErr(fromString("us-after-oct = 0o_1\n"))
 assert Result.isErr(fromString("tbl = { a = 1, [b] }\n"))
 assert Result.isErr(fromString("tbl = { a.b = \"a_b\", a.b.c = \"a_b_c\" }\n"))
 assert Result.isErr(fromString("t = {x=3,,y=4}\n"))
-// assert Result.isErr(
-//   fromString(
-//     "# Duplicate keys within an inline table are invalid\na={b=1, b=2}\n"
-//   )
-// )
+assert Result.isErr(
+  fromString(
+    "# Duplicate keys within an inline table are invalid\na={b=1, b=2}\n"
+  )
+)
 assert Result.isErr(fromString("t = {,}\n"))
-// assert Result.isErr(
-//   fromString(
-//     "tbl = { fruit = { apple.color = \"red\" }, fruit.apple.texture = { smooth = true } }\n\n"
-//   )
-// )
+assert Result.isErr(
+  fromString(
+    "tbl = { fruit = { apple.color = \"red\" }, fruit.apple.texture = { smooth = true } }\n\n"
+  )
+)
 assert Result.isErr(fromString("t = {x = 3 y = 4}\n"))
 // assert Result.isErr(
 //   fromString(
@@ -392,36 +392,36 @@ assert Result.isErr(fromString("�� #   U T F - 1 6   w i t h   B O M \n"))
 assert Result.isErr(fromString(" #   U T F - 1 6   w i t h o u t   B O M \n"))
 
 // datetime
-// assert Result.isErr(
-//   fromString(
-//     "# time-hour       = 2DIGIT  ; 00-23\nd = 2006-01-01T24:00:00-00:00\n"
-//   )
-// )
-// assert Result.isErr(
-//   fromString(
-//     "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on\n#                           ; month/year\nd = 2006-01-32T00:00:00-00:00\n"
-//   )
-// )
-// assert Result.isErr(
-//   fromString(
-//     "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on\n#                           ; month/year\nd = 2006-01-00T00:00:00-00:00\n"
-//   )
-// )
-// assert Result.isErr(
-//   fromString(
-//     "# time-minute     = 2DIGIT  ; 00-59\nd = 2006-01-01T00:60:00-00:00\n"
-//   )
-// )
-// assert Result.isErr(
-//   fromString(
-//     "# date-month      = 2DIGIT  ; 01-12\nd = 2006-13-01T00:00:00-00:00\n"
-//   )
-// )
-// assert Result.isErr(
-//   fromString(
-//     "# date-month      = 2DIGIT  ; 01-12\nd = 2007-00-01T00:00:00-00:00\n"
-//   )
-// )
+assert Result.isErr(
+  fromString(
+    "# time-hour       = 2DIGIT  ; 00-23\nd = 2006-01-01T24:00:00-00:00\n"
+  )
+)
+assert Result.isErr(
+  fromString(
+    "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on\n#                           ; month/year\nd = 2006-01-32T00:00:00-00:00\n"
+  )
+)
+assert Result.isErr(
+  fromString(
+    "# date-mday       = 2DIGIT  ; 01-28, 01-29, 01-30, 01-31 based on\n#                           ; month/year\nd = 2006-01-00T00:00:00-00:00\n"
+  )
+)
+assert Result.isErr(
+  fromString(
+    "# time-minute     = 2DIGIT  ; 00-59\nd = 2006-01-01T00:60:00-00:00\n"
+  )
+)
+assert Result.isErr(
+  fromString(
+    "# date-month      = 2DIGIT  ; 01-12\nd = 2006-13-01T00:00:00-00:00\n"
+  )
+)
+assert Result.isErr(
+  fromString(
+    "# date-month      = 2DIGIT  ; 01-12\nd = 2007-00-01T00:00:00-00:00\n"
+  )
+)
 assert Result.isErr(
   fromString(
     "# Day \"5\" instead of \"05\"; the leading zero is required.\nwith-milli = 1987-07-5T17:45:00.12Z\n"
@@ -464,10 +464,6 @@ assert Result.isErr(fromString("bare-vertical-tab = \n"))
 assert Result.isErr(
   fromString("comment-cr = \"Carriage return in comment\" # \ra=1\n")
 )
-// assert Result.isErr(fromString("comment-del = \"0x7f\" # \n"))
-// assert Result.isErr(fromString("comment-lf = \"ctrl-P\" # \n"))
-// assert Result.isErr(fromString("comment-null = \"null\" #  \n"))
-// assert Result.isErr(fromString("comment-us = \"ctrl-_\" # \n"))
 assert Result.isErr(fromString("multi-del = \"\"\"null\"\"\"\n"))
 assert Result.isErr(fromString("multi-lf = \"\"\"null\"\"\"\n"))
 assert Result.isErr(fromString("multi-null = \"\"\"null \"\"\"\n"))
@@ -3422,23 +3418,23 @@ assert sortToml(
       )
     )
   )
-// assert sortToml(
-//   fromString(
-//     "utc1  = 1987-07-05T17:45:56.1234Z\nutc2  = 1987-07-05T17:45:56.6Z\nwita1 = 1987-07-05T17:45:56.1234+08:00\nwita2 = 1987-07-05T17:45:56.6+08:00\n"
-//   )
-// ) ==
-//   sortToml(
-//     Ok(
-//       TomlTable(
-//         [
-//           ("utc1", TomlDateTime("1987-07-05T17:45:56.1234Z")),
-//           ("utc2", TomlDateTime("1987-07-05T17:45:56.6000Z")),
-//           ("wita1", TomlDateTime("1987-07-05T17:45:56.1234+08:00")),
-//           ("wita2", TomlDateTime("1987-07-05T17:45:56.6000+08:00")),
-//         ]
-//       )
-//     )
-//   )
+assert sortToml(
+  fromString(
+    "utc1  = 1987-07-05T17:45:56.1234Z\nutc2  = 1987-07-05T17:45:56.6Z\nwita1 = 1987-07-05T17:45:56.1234+08:00\nwita2 = 1987-07-05T17:45:56.6+08:00\n"
+  )
+) ==
+  sortToml(
+    Ok(
+      TomlTable(
+        [
+          ("utc1", TomlDateTime("1987-07-05T17:45:56.1234Z")),
+          ("utc2", TomlDateTime("1987-07-05T17:45:56.6Z")),
+          ("wita1", TomlDateTime("1987-07-05T17:45:56.1234+08:00")),
+          ("wita2", TomlDateTime("1987-07-05T17:45:56.6+08:00")),
+        ]
+      )
+    )
+  )
 // assert sortToml(
 //   fromString(
 //     "# Seconds are optional in date-time and time.\nwithout-seconds-1 = 13:37\nwithout-seconds-2 = 1979-05-27 07:32Z\nwithout-seconds-3 = 1979-05-27 07:32-07:00\nwithout-seconds-4 = 1979-05-27T07:32\n"
@@ -3487,30 +3483,30 @@ assert sortToml(
   )
 ) ==
   sortToml(Ok(TomlTable([("key", TomlString("value"))])))
-// assert sortToml(
-//   fromString(
-//     "# Top comment.\n  # Top comment.\n# Top comment.\n\n# [no-extraneous-groups-please]\n\n[group] # Comment\nanswer = 42 # Comment\n# no-extraneous-keys-please = 999\n# Inbetween comment.\nmore = [ # Comment\n  # What about multiple # comments?\n  # Can you handle it?\n  #\n          # Evil.\n# Evil.\n  42, 42, # Comments within arrays are fun.\n  # What about multiple # comments?\n  # Can you handle it?\n  #\n          # Evil.\n# Evil.\n# ] Did I fool you?\n] # Hopefully not.\n\n# Make sure the space between the datetime and \"#\" isn't lexed.\ndt = 1979-05-27T07:32:12-07:00  # c\nd = 1979-05-27 # Comment\n"
-//   )
-// ) ==
-//   sortToml(
-//     Ok(
-//       TomlTable(
-//         [
-//           (
-//             "group",
-//             TomlTable(
-//               [
-//                 ("answer", TomlInt(42)),
-//                 ("dt", TomlDateTime("1979-05-27T07:32:12-07:00")),
-//                 ("d", TomlDateLocal("1979-05-27")),
-//                 ("more", TomlArray([TomlInt(42), TomlInt(42)])),
-//               ]
-//             ),
-//           ),
-//         ]
-//       )
-//     )
-//   )
+assert sortToml(
+  fromString(
+    "# Top comment.\n  # Top comment.\n# Top comment.\n\n# [no-extraneous-groups-please]\n\n[group] # Comment\nanswer = 42 # Comment\n# no-extraneous-keys-please = 999\n# Inbetween comment.\nmore = [ # Comment\n  # What about multiple # comments?\n  # Can you handle it?\n  #\n          # Evil.\n# Evil.\n  42, 42, # Comments within arrays are fun.\n  # What about multiple # comments?\n  # Can you handle it?\n  #\n          # Evil.\n# Evil.\n# ] Did I fool you?\n] # Hopefully not.\n\n# Make sure the space between the datetime and \"#\" isn't lexed.\ndt = 1979-05-27T07:32:12-07:00  # c\nd = 1979-05-27 # Comment\n"
+  )
+) ==
+  sortToml(
+    Ok(
+      TomlTable(
+        [
+          (
+            "group",
+            TomlTable(
+              [
+                ("answer", TomlInt(42)),
+                ("dt", TomlDateTime("1979-05-27T07:32:12-07:00")),
+                ("d", TomlDateLocal("1979-05-27")),
+                ("more", TomlArray([TomlInt(42), TomlInt(42)])),
+              ]
+            ),
+          ),
+        ]
+      )
+    )
+  )
 assert sortToml(fromString("# single comment without any eol characters")) ==
   sortToml(Ok(TomlTable([])))
 assert sortToml(fromString("# ~  ÿ ퟿  ￿ 𐀀 􏿿\n")) ==

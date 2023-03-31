@@ -56,16 +56,127 @@ let log = (a, b) => {
   print(Buffer.toString(str))
 }
 let a = fromString(
-    "utc1  = 1987-07-05T17:45:56.1234Z\nutc2  = 1987-07-05T17:45:56.6Z\nwita1 = 1987-07-05T17:45:56.1234+08:00\nwita2 = 1987-07-05T17:45:56.6+08:00\n"
-  )
+  "# Note: this file contains literal tab characters.\n\nname.first = \"Arthur\"\n\"name\".'last' = \"Dent\"\n\nmany.dots.here.dot.dot.dot = 42\n\n# Space are ignored, and key parts can be quoted.\ncount.a       = 1\ncount . b     = 2\n\"count\".\"c\"   = 3\n\"count\" . \"d\" = 4\n'count'.'e'   = 5\n'count' . 'f' = 6\n\"count\".'g'   = 7\n\"count\" . 'h' = 8\ncount.'i'     = 9\ncount \t.\t 'j'\t   = 10\n\"count\".k     = 11\n\"count\" . l   = 12\n\n[tbl]\na.b.c = 42.666\n\n[a.few.dots]\npolka.dot = \"again?\"\npolka.dance-with = \"Dot\"\n\n[[arr]]\na.b.c=1\na.b.d=2\n\n[[arr]]\na.b.c=3\na.b.d=4\n"
+)
 let b = Ok(
-      TomlTable(
-        [
-          ("utc1", TomlDateTime("1987-07-05T17:45:56.1234Z")),
-          ("utc2", TomlDateTime("1987-07-05T17:45:56.6000Z")),
-          ("wita1", TomlDateTime("1987-07-05T17:45:56.1234+08:00")),
-          ("wita2", TomlDateTime("1987-07-05T17:45:56.6000+08:00")),
-        ]
-      )
-    )
+  TomlTable(
+    [
+      (
+        "a",
+        TomlTable(
+          [
+            (
+              "few",
+              TomlTable(
+                [
+                  (
+                    "dots",
+                    TomlTable(
+                      [
+                        (
+                          "polka",
+                          TomlTable(
+                            [
+                              ("dance-with", TomlString("Dot")),
+                              ("dot", TomlString("again?")),
+                            ]
+                          ),
+                        ),
+                      ]
+                    ),
+                  ),
+                ]
+              ),
+            ),
+          ]
+        ),
+      ),
+      (
+        "arr",
+        TomlArray(
+          [
+            TomlTable(
+              [
+                (
+                  "a",
+                  TomlTable(
+                    [("b", TomlTable([("c", TomlInt(1)), ("d", TomlInt(2))]))]
+                  ),
+                ),
+              ]
+            ),
+            TomlTable(
+              [
+                (
+                  "a",
+                  TomlTable(
+                    [("b", TomlTable([("c", TomlInt(3)), ("d", TomlInt(4))]))]
+                  ),
+                ),
+              ]
+            ),
+          ]
+        ),
+      ),
+      (
+        "count",
+        TomlTable(
+          [
+            ("a", TomlInt(1)),
+            ("b", TomlInt(2)),
+            ("c", TomlInt(3)),
+            ("d", TomlInt(4)),
+            ("e", TomlInt(5)),
+            ("f", TomlInt(6)),
+            ("g", TomlInt(7)),
+            ("h", TomlInt(8)),
+            ("i", TomlInt(9)),
+            ("j", TomlInt(10)),
+            ("k", TomlInt(11)),
+            ("l", TomlInt(12)),
+          ]
+        ),
+      ),
+      (
+        "many",
+        TomlTable(
+          [
+            (
+              "dots",
+              TomlTable(
+                [
+                  (
+                    "here",
+                    TomlTable(
+                      [
+                        (
+                          "dot",
+                          TomlTable(
+                            [("dot", TomlTable([("dot", TomlInt(42))]))]
+                          ),
+                        ),
+                      ]
+                    ),
+                  ),
+                ]
+              ),
+            ),
+          ]
+        ),
+      ),
+      (
+        "name",
+        TomlTable(
+          [("first", TomlString("Arthur")), ("last", TomlString("Dent"))]
+        ),
+      ),
+      (
+        "tbl",
+        TomlTable(
+          [("a", TomlTable([("b", TomlTable([("c", TomlFloat(42.666))]))]))]
+        ),
+      ),
+    ]
+  )
+)
 log(a, b)

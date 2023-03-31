@@ -305,7 +305,10 @@ let buildValidTest = (grainTestProgram, files) => {
       // }
       // Write Code
       if (generateCode) {
-        Buffer.addString("assert toString(sortToml(fromString(\"", grainTestProgram)
+        Buffer.addString(
+          "assert toString(sortToml(fromString(\"",
+          grainTestProgram
+        )
         Buffer.addString(sanitizeGrainString(input), grainTestProgram)
         // Write Output
         Buffer.addString("\"))) == toString(sortToml(Ok(", grainTestProgram)
@@ -331,9 +334,10 @@ let skipVersionTests = (version, tests) => {
         "invalid/inline-table/linebreak-3",
         "invalid/inline-table/linebreak-4",
         "invalid/key/special-character", // Unicode can now be in bare keys.
-        // TODO: There should be none of these, these are just failing tests
-        "invalid/invalid/spec-example-1-compact",
-        "invalid/invalid/table/append-with-dotted-keys-2",
+        "invalid/control/comment-del", // More Control Characters Are Now Allowing In Comments
+        "invalid/control/comment-lf", // More Control Characters Are Now Allowing In Comments
+        "invalid/control/comment-null", // More Control Characters Are Now Allowing In Comments
+        "invalid/control/comment-us", // More Control Characters Are Now Allowing In Comments
       ],
   }
   // Filter
