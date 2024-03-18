@@ -1,23 +1,23 @@
 module Toml
 
-include "string"
-include "char"
-include "list"
-include "buffer"
-include "uint8"
-include "number"
-include "array"
-include "Set"
+from "string" include String
+from "char" include Char
+from "list" include List
+from "buffer" include Buffer
+from "uint8" include Uint8
+from "number" include Number
+from "array" include Array
+from "Set" include Set
 // TODO: Remove this
-include "map"
-include "runtime/unsafe/wasmi32"
-include "runtime/numberUtils"
-include "runtime/string" as RunTimeString
-include "runtime/numbers"
-include "runtime/dataStructures"
-from RunTimeString use { toString as runtimeToString }
-from Numbers use { coerceNumberToWasmI32 }
-from DataStructures use { tagSimpleNumber }
+from "map" include Map
+from "runtime/unsafe/wasmi32" include WasmI32
+from "runtime/numberUtils" include NumberUtils
+from "runtime/string" include String as RunTimeString
+from "runtime/numbers" include Numbers
+from "runtime/dataStructures" include DataStructures
+use RunTimeString.{ toString as runtimeToString }
+use Numbers.{ coerceNumberToWasmI32 }
+use DataStructures.{ tagSimpleNumber }
 // Types
 enum NumberOrDateOrTime {
   IsNumberLiteral,
@@ -29,7 +29,7 @@ enum TableKeyHolds {
   KeyHoldsTable,
   KeyHoldsValue,
 }
-provide enum Toml {
+provide enum rec Toml {
   TomlTable(List<(String, Toml)>),
   TomlArray(List<Toml>),
   TomlString(String),
@@ -107,20 +107,16 @@ let formatCodePointOrEOF = (codePoint: Number) => {
   }
 }
 // TODO: Make this take unexpected and expected for better consistency
-let buildUnexpectedTokenError =
-  (
-    parserState: TOMLParserState,
-    detail: String,
-  ) => {
+let buildUnexpectedTokenError = (parserState: TOMLParserState, detail: String) => {
   let codePoint = parserState.currentCodePoint
   let pos = parserState.pos
   if (codePoint == _END_OF_INPUT) {
     UnexpectedEndOfInput(
-      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail
+      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail,
     )
   } else {
     UnexpectedToken(
-      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail
+      "Unexpected token at position " ++ runtimeToString(pos) ++ ": " ++ detail,
     )
   }
 }
@@ -130,15 +126,7 @@ let buildUnexpectedTokenError =
 @unsafe
 let getCodePoint = (ptr: WasmI32) => {
   // Algorithm from https://encoding.spec.whatwg.org/#utf-8-decoder
-  from WasmI32 use {
-    add as (+),
-    and as (&),
-    or as (|),
-    shl as (<<),
-    leU as (<=),
-    geU as (>=),
-    eq as (==),
-  }
+  use WasmI32.{ (+), (&), (|), (<<), leU as (<=), geU as (>=), (==) }
 
   let mut codePoint = 0n
   let mut bytesSeen = 0n
@@ -188,7 +176,7 @@ let getCodePoint = (ptr: WasmI32) => {
 
 @unsafe
 let rec readCodePoint = (bytePosition: Number, string: String) => {
-  from WasmI32 use { add as (+), ltU as (<) }
+  use WasmI32.{ (+), ltU as (<) }
 
   let strPtr = WasmI32.fromGrain(string)
 
@@ -240,11 +228,10 @@ let next = (parserState: TOMLParserState) => {
   }
   c
 }
-let expectCodePointAndAdvance =
-  (
-    expectedCodePoint: Number,
-    parserState: TOMLParserState,
-  ) => {
+let expectCodePointAndAdvance = (
+  expectedCodePoint: Number,
+  parserState: TOMLParserState,
+) => {
   let c = parserState.currentCodePoint
   if (c == expectedCodePoint) {
     next(parserState)
@@ -324,10 +311,7 @@ let skipSpace = (parserState: TOMLParserState) => {
 let skipWhiteSpace = (parserState: TOMLParserState) => {
   // isAtEndOfInput is not strictly necessary here
   // could remove as an optimization
-  while (
-    isCurrentTokenWhiteSpace(parserState) &&
-    !isAtEndOfInput(parserState)
-  ) {
+  while (isCurrentTokenWhiteSpace(parserState) && !isAtEndOfInput(parserState)) {
     next(parserState)
     void
   }
@@ -339,7 +323,7 @@ let atoiFast = buffer => {
   let bufLen = Buffer.length(buffer)
   let mut result = 0
   for (let mut i = 0; i < bufLen; i += 1) {
-    from Uint8 use { (-) }
+    use Uint8.{ (-) }
     result = (result << 1) +
       (result << 3) +
       Uint8.toNumber(Buffer.getUint8(i, buffer) - 48us)
@@ -374,21 +358,22 @@ let isValidDateInMonth = (year, month, day) => {
   }
 }
 // Toml Table
-let rec writeTable =
-  (
-    tablePath,
-    tableElement,
-    rootTable,
-    writeArray,
-    overWrite=true,
-  ) => {
+let rec writeTable = (
+  tablePath,
+  tableElement,
+  rootTable,
+  writeArray,
+  overWrite=true,
+) => {
   match (tablePath) {
     [pathItem] when writeArray => {
       match (rootTable) {
         TomlTable(tableItems) => {
           // Find Path Item
-          let pathItemIndex = List.findIndex(((key, _)) =>
-            key == pathItem, tableItems)
+          let pathItemIndex = List.findIndex(
+            ((key, _)) => key == pathItem,
+            tableItems
+          )
           let (tableKey, tableValue) = match (pathItemIndex) {
             Some(pathItemIndex) => {
               match (List.nth(pathItemIndex, tableItems)) {
@@ -426,8 +411,10 @@ let rec writeTable =
       match (rootTable) {
         TomlTable(tableItems) => {
           // Find Path Item
-          let pathItemIndex = List.findIndex(((key, _)) =>
-            key == pathItem, tableItems)
+          let pathItemIndex = List.findIndex(
+            ((key, _)) => key == pathItem,
+            tableItems
+          )
           if (rest == [] && !overWrite && pathItemIndex != None) {
             Ok(TomlTable(tableItems))
           } else {
@@ -440,13 +427,15 @@ let rec writeTable =
               },
               None => (pathItem, TomlTable([])),
             }
-            match (writeTable(
-              rest,
-              tableElement,
-              tableValue,
-              writeArray,
-              overWrite=overWrite
-            )) {
+            match (
+              writeTable(
+                rest,
+                tableElement,
+                tableValue,
+                writeArray,
+                overWrite=overWrite
+              )
+            ) {
               Err(err) => Err(err),
               Ok(item) => {
                 let tableItems = match (pathItemIndex) {
@@ -493,7 +482,7 @@ let skipComment = parserState => {
             buildUnexpectedTokenError(
               parserState,
               "Unexpected Token In Comment: " ++ formatCodePointOrEOF(c)
-            )
+            ),
           )
         }
       },
@@ -585,9 +574,9 @@ let rec parseKey = parserState => {
   }
   // Return Key Path
   return Ok(List.reverse(key))
-},
+}
 // Parse Literal
-parseTrueLiteral = parserState => {
+and parseTrueLiteral = parserState => {
   match (expectCodePointAndAdvance(0x74, parserState)) {
     // 't'
     Some(e) => Err(e),
@@ -611,8 +600,8 @@ parseTrueLiteral = parserState => {
       }
     },
   }
-},
-parseFalseLiteral = parserState => {
+}
+and parseFalseLiteral = parserState => {
   match (expectCodePointAndAdvance(0x66, parserState)) {
     // 'f'
     Some(e) => Err(e),
@@ -642,8 +631,8 @@ parseFalseLiteral = parserState => {
       }
     },
   }
-},
-parseNumberLiteral = parserState => {
+}
+and parseNumberLiteral = parserState => {
   let buffer = parserState.bufferParse
   Buffer.clear(buffer)
   // First char can optionally be a minus sign.
@@ -689,7 +678,8 @@ parseNumberLiteral = parserState => {
             None => {
               if (isNegative)
                 Ok(TomlFloat(Infinity * (if (isNegative) -1.0 else 1.0)))
-              else Ok(TomlInt(Infinity))
+              else
+                Ok(TomlInt(Infinity))
             },
           }
         },
@@ -753,12 +743,11 @@ parseNumberLiteral = parserState => {
         c = next(parserState)
         let mut i = 0
         let mut allowUnderScore = false
-        for (
-          ;
+        for (;
           c >= 0x30 && c <= 0x39 ||
-          c >= 0x41 && c <= 0x46 ||
-          c >= 0x61 && c <= 0x66 ||
-          c == 0x5F;
+            c >= 0x41 && c <= 0x46 ||
+            c >= 0x61 && c <= 0x66 ||
+            c == 0x5F;
           i += 1
         ) {
           if (c == 0x5F) {
@@ -944,9 +933,9 @@ parseNumberLiteral = parserState => {
       }
     },
   }
-},
+}
 // TODO: Consider Combining literal and basic string parsing to deduplicate code
-parseBasicStringLiteral = (parserState, allowMultiLine) => {
+and parseBasicStringLiteral = (parserState, allowMultiLine) => {
   let strBuffer = parserState.bufferParse
   Buffer.clear(strBuffer)
   let mut hasHitContent = false
@@ -978,7 +967,7 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
               buildUnexpectedTokenError(
                 parserState,
                 "Multi-line string literal not allowed here"
-              )
+              ),
             )
           }
           for (let mut i = 3; i < quoteCount; i += 1) {
@@ -1037,18 +1026,15 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
               let mut digit = hexDigitCodePoint
               if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
                 digit -= 48
-              } else if (
-                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
-              ) { // A..F
+              } else if (hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70) { // A..F
                 digit -= 55 // (65 - 10)
-              } else if (
-                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
-              ) { // a..f
+              } else if (hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102) { // a..f
                 digit -= 87 // (97 - 10)
               } else {
                 let digitsSoFar = 3 - digitIndex
-                let detail = "expected exactly 2 hexadecimal digits in the UTF-8 escape sequence, found only " ++
-                  runtimeToString(digitsSoFar)
+                let detail =
+                  "expected exactly 2 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                    runtimeToString(digitsSoFar)
                 return Err(buildUnexpectedTokenError(parserState, detail))
               }
               let shift = digitIndex * 4
@@ -1069,18 +1055,15 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
               let mut digit = hexDigitCodePoint
               if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
                 digit -= 48
-              } else if (
-                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
-              ) { // A..F
+              } else if (hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70) { // A..F
                 digit -= 55 // (65 - 10)
-              } else if (
-                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
-              ) { // a..f
+              } else if (hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102) { // a..f
                 digit -= 87 // (97 - 10)
               } else {
                 let digitsSoFar = 3 - digitIndex
-                let detail = "expected exactly 4 hexadecimal digits in the UTF-8 escape sequence, found only " ++
-                  runtimeToString(digitsSoFar)
+                let detail =
+                  "expected exactly 4 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                    runtimeToString(digitsSoFar)
                 return Err(buildUnexpectedTokenError(parserState, detail))
               }
               let shift = digitIndex * 4
@@ -1101,18 +1084,15 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
               let mut digit = hexDigitCodePoint
               if (hexDigitCodePoint >= 48 && hexDigitCodePoint <= 57) { // 0..9
                 digit -= 48
-              } else if (
-                hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70
-              ) { // A..F
+              } else if (hexDigitCodePoint >= 65 && hexDigitCodePoint <= 70) { // A..F
                 digit -= 55 // (65 - 10)
-              } else if (
-                hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102
-              ) { // a..f
+              } else if (hexDigitCodePoint >= 97 && hexDigitCodePoint <= 102) { // a..f
                 digit -= 87 // (97 - 10)
               } else {
                 let digitsSoFar = 3 - digitIndex
-                let detail = "expected exactly 8 hexadecimal digits in the UTF-8 escape sequence, found only " ++
-                  runtimeToString(digitsSoFar)
+                let detail =
+                  "expected exactly 8 hexadecimal digits in the UTF-8 escape sequence, found only " ++
+                    runtimeToString(digitsSoFar)
                 return Err(buildUnexpectedTokenError(parserState, detail))
               }
               let shift = digitIndex * 4
@@ -1158,9 +1138,9 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
         }
       },
       // Invalid Chars
-      c when (
-        c >= 0x00 && c <= 0x0008 || c >= 0x000A && c <= 0x001F || c == 0x007F
-      ) => {
+      c when c >= 0x00 && c <= 0x0008 ||
+        c >= 0x000A && c <= 0x001F ||
+        c == 0x007F => {
         // TODO: Handle CRLF
         if (isMultiLine && c == 0x000A) {
           if (hasHitContent) addCharFromCodePoint(c, strBuffer)
@@ -1176,7 +1156,7 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
       // Unexpected End Of Input
       _ when isAtEndOfInput(parserState) => {
         return Err(
-          UnexpectedEndOfInput("unexpected end of input in string literal")
+          UnexpectedEndOfInput("unexpected end of input in string literal"),
         )
       },
       // Valid Chars
@@ -1193,8 +1173,8 @@ parseBasicStringLiteral = (parserState, allowMultiLine) => {
     }
   }
   return Ok(TomlString(Buffer.toString(strBuffer)))
-},
-parseLitStringLiteral = (parserState, allowMultiLine) => {
+}
+and parseLitStringLiteral = (parserState, allowMultiLine) => {
   let strBuffer = parserState.bufferParse
   Buffer.clear(strBuffer)
   let mut hasHitContent = false
@@ -1226,7 +1206,7 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
               buildUnexpectedTokenError(
                 parserState,
                 "Multi-line string literal not allowed here"
-              )
+              ),
             )
           }
           for (let mut i = 3; i < quoteCount; i += 1) {
@@ -1240,9 +1220,9 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
         }
       },
       // Invalid Chars
-      c when (
-        c >= 0x00 && c <= 0x0008 || c >= 0x000A && c <= 0x001F || c == 0x007F
-      ) => {
+      c when c >= 0x00 && c <= 0x0008 ||
+        c >= 0x000A && c <= 0x001F ||
+        c == 0x007F => {
         // TODO: Handle CRLF
         if (isMultiLine && c == 0x000A) {
           if (hasHitContent) addCharFromCodePoint(c, strBuffer)
@@ -1258,7 +1238,7 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
       // Unexpected End Of Input
       _ when isAtEndOfInput(parserState) => {
         return Err(
-          UnexpectedEndOfInput("unexpected end of input in string literal")
+          UnexpectedEndOfInput("unexpected end of input in string literal"),
         )
       },
       // Valid Chars
@@ -1275,8 +1255,8 @@ parseLitStringLiteral = (parserState, allowMultiLine) => {
     }
   }
   return Ok(TomlString(Buffer.toString(strBuffer)))
-},
-parseArrayLiteral = parserState => {
+}
+and parseArrayLiteral = parserState => {
   match (expectCodePointAndAdvance(0x5B, parserState)) {
     // '['
     Some(e) => return Err(e),
@@ -1338,11 +1318,11 @@ parseArrayLiteral = parserState => {
     return Ok(TomlArray(List.reverse(elems)))
   } else {
     return Err(
-      buildUnexpectedTokenError(parserState, "unexpected end of array")
+      buildUnexpectedTokenError(parserState, "unexpected end of array"),
     )
   }
-},
-parseTableLiteral = parserState => {
+}
+and parseTableLiteral = parserState => {
   let keyList = Set.make()
   match (expectCodePointAndAdvance(0x7B, parserState)) {
     // '{'
@@ -1363,7 +1343,7 @@ parseTableLiteral = parserState => {
         },
         -1 => {
           return Err(
-            buildUnexpectedTokenError(parserState, "unexpected end of table")
+            buildUnexpectedTokenError(parserState, "unexpected end of table"),
           )
         },
         _ => void,
@@ -1409,7 +1389,7 @@ parseTableLiteral = parserState => {
       },
       -1 => {
         return Err(
-          buildUnexpectedTokenError(parserState, "unexpected end of table")
+          buildUnexpectedTokenError(parserState, "unexpected end of table"),
         )
       },
       c => {
@@ -1417,16 +1397,16 @@ parseTableLiteral = parserState => {
           buildUnexpectedTokenError(
             parserState,
             "expected ',' or '}' after value in table, found " ++
-            formatCodePointOrEOF(c)
-          )
+              formatCodePointOrEOF(c)
+          ),
         )
       },
     }
   }
   // Return Table
   return Ok(inlineTable)
-},
-parseDateLiteral = parserState => {
+}
+and parseDateLiteral = parserState => {
   // TODO: We should parse this to a series of numbers
   let buffer = parserState.bufferParse
   Buffer.clear(buffer)
@@ -1439,7 +1419,7 @@ parseDateLiteral = parserState => {
         buildUnexpectedTokenError(
           parserState,
           "expected digit in date literal, found " ++ formatCodePointOrEOF(c)
-        )
+        ),
       )
     }
     year *= 10
@@ -1462,7 +1442,7 @@ parseDateLiteral = parserState => {
         buildUnexpectedTokenError(
           parserState,
           "expected digit in date literal, found " ++ formatCodePointOrEOF(c)
-        )
+        ),
       )
     }
     month *= 10
@@ -1488,7 +1468,7 @@ parseDateLiteral = parserState => {
         buildUnexpectedTokenError(
           parserState,
           "expected digit in date literal, found " ++ formatCodePointOrEOF(c)
-        )
+        ),
       )
     }
     date *= 10
@@ -1502,8 +1482,8 @@ parseDateLiteral = parserState => {
   }
   // Return The Date
   return Ok(TomlDateLocal(Buffer.toString(buffer)))
-},
-parseTimeLiteral = (parserState, allowSeconds=true) => {
+}
+and parseTimeLiteral = (parserState, allowSeconds=true) => {
   // TODO: We should parse this to a series of numbers
   let buffer = parserState.bufferParse
   Buffer.clear(buffer)
@@ -1516,7 +1496,7 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
         buildUnexpectedTokenError(
           parserState,
           "expected digit in time literal, found " ++ formatCodePointOrEOF(c)
-        )
+        ),
       )
     }
     hour *= 10
@@ -1542,7 +1522,7 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
         buildUnexpectedTokenError(
           parserState,
           "expected digit in time literal, found " ++ formatCodePointOrEOF(c)
-        )
+        ),
       )
     }
     min *= 10
@@ -1570,7 +1550,7 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
           buildUnexpectedTokenError(
             parserState,
             "expected digit in time literal, found " ++ formatCodePointOrEOF(c)
-          )
+          ),
         )
       }
       addCharFromCodePoint(c, buffer)
@@ -1591,8 +1571,8 @@ parseTimeLiteral = (parserState, allowSeconds=true) => {
   }
   // Return The Time
   return Ok(TomlTimeLocal(Buffer.toString(buffer)))
-},
-parseDateTimeLiteral = parserState => {
+}
+and parseDateTimeLiteral = parserState => {
   // TODO: We should use numbers for this
   let tomlDate = parseDateLiteral(parserState)
   let tomlDate = match (tomlDate) {
@@ -1607,7 +1587,8 @@ parseDateTimeLiteral = parserState => {
       if (
         parserState.currentCodePoint < 0x30 ||
         parserState.currentCodePoint > 0x39
-      ) return Ok(TomlDateLocal(tomlDate))
+      )
+        return Ok(TomlDateLocal(tomlDate))
     }, // ' '
     0x54 => {
       next(parserState)
@@ -1656,8 +1637,8 @@ parseDateTimeLiteral = parserState => {
   next(parserState)
   // Return The DateTime
   return Ok(TomlDateTime(tomlDateTime ++ "Z"))
-},
-parseNumberOrDateOrTime = parserState => {
+}
+and parseNumberOrDateOrTime = parserState => {
   // TODO: Implement this into a parseNumberLike so we do not need to use a look ahead
   let literalStartState = saveTomlState(parserState)
   // Look Ahead To See What We Find
@@ -1683,8 +1664,8 @@ parseNumberOrDateOrTime = parserState => {
     IsDateLiteral => parseDateTimeLiteral(parserState),
     IsTimeLiteral => parseTimeLiteral(parserState),
   }
-},
-parseLiteral = parserState => {
+}
+and parseLiteral = parserState => {
   skipSpace(parserState)
   match (parserState.currentCodePoint) {
     0x74 => parseTrueLiteral(parserState), // 't'
@@ -1695,8 +1676,7 @@ parseLiteral = parserState => {
     0x2D => parseNumberLiteral(parserState), // '-'
     0x69 => parseNumberLiteral(parserState), // 'i'
     0x6E => parseNumberLiteral(parserState), // 'n'
-    c when c >= 0x30 && c <= 0x39 =>
-      parseNumberOrDateOrTime(parserState), // '0'..'9'
+    c when c >= 0x30 && c <= 0x39 => parseNumberOrDateOrTime(parserState), // '0'..'9'
     0x22 => parseBasicStringLiteral(parserState, true), // '"'
     0x27 => parseLitStringLiteral(parserState, true), // '''
     c => {
@@ -1770,54 +1750,44 @@ let parseFile = parserState => {
   while (!isAtEndOfInput(parserState)) {
     match (parserState.currentCodePoint) {
       // [
-      0x5B =>
-        match (parseTableHeader(parserState)) {
-          Err(err) => return Err(err),
-          Ok((key, isArrayHeader)) => {
-            needNewLine = true
-            // Write The Last Array
-            if (writeArray) {
-              rootTable = match (writeTable(
-                rootKey,
-                arrayTable,
-                rootTable,
-                true
-              )) {
-                Ok(t) => t,
-                Err(err) => return Err(err),
-              }
-              arrayTable = TomlTable([])
-              Map.clear(uniqueKeysArray)
-              // Check For Duplicate Keys
-              if (Map.get(key, uniqueKeysRoot) != None) {
-                // TODO: Consider Improving This Error
-                return Err(DuplicateTomlKey)
-              }
-              Map.set(key, KeyHoldsArray, uniqueKeysRoot)
-            } else {
-              // Check For Duplicate Keys
-              if (Map.get(key, uniqueKeysRoot) != None) {
-                // TODO: Consider Improving This Error
-                return Err(DuplicateTomlKey)
-              }
-              Map.set(key, KeyHoldsTable, uniqueKeysRoot)
-            }
-            // Write Initial
-            rootTable = match (writeTable(
-              key,
-              TomlTable([]),
-              rootTable,
-              false,
-              overWrite=false
-            )) {
+      0x5B => match (parseTableHeader(parserState)) {
+        Err(err) => return Err(err),
+        Ok((key, isArrayHeader)) => {
+          needNewLine = true
+          // Write The Last Array
+          if (writeArray) {
+            rootTable = match (writeTable(rootKey, arrayTable, rootTable, true)) {
               Ok(t) => t,
               Err(err) => return Err(err),
             }
-            // Set The New Stuff
-            writeArray = isArrayHeader
-            rootKey = key
-          },
+            arrayTable = TomlTable([])
+            Map.clear(uniqueKeysArray)
+            // Check For Duplicate Keys
+            if (Map.get(key, uniqueKeysRoot) != None) {
+              // TODO: Consider Improving This Error
+              return Err(DuplicateTomlKey)
+            }
+            Map.set(key, KeyHoldsArray, uniqueKeysRoot)
+          } else {
+            // Check For Duplicate Keys
+            if (Map.get(key, uniqueKeysRoot) != None) {
+              // TODO: Consider Improving This Error
+              return Err(DuplicateTomlKey)
+            }
+            Map.set(key, KeyHoldsTable, uniqueKeysRoot)
+          }
+          // Write Initial
+          rootTable = match (
+            writeTable(key, TomlTable([]), rootTable, false, overWrite=false)
+          ) {
+            Ok(t) => t,
+            Err(err) => return Err(err),
+          }
+          // Set The New Stuff
+          writeArray = isArrayHeader
+          rootKey = key
         },
+      },
       c when isCurrentTokenWhiteSpace(parserState) =>
         skipWhiteSpace(parserState),
       c when !allowKeyValue => {
@@ -1825,7 +1795,7 @@ let parseFile = parserState => {
           buildUnexpectedTokenError(
             parserState,
             "expected \n found " ++ formatCodePointOrEOF(c)
-          )
+          ),
         )
       },
       _ => {
@@ -1883,10 +1853,7 @@ let parseFile = parserState => {
   return Ok(rootTable)
 }
 // Entry
-provide let fromString: String -> Result<Toml, TOMLParseError> =
-  (
-    str: String,
-  ) => {
+provide let fromString: String => Result<Toml, TOMLParseError> = (str: String) => {
   let parserState = {
     string: str,
     bufferParse: Buffer.make(16),

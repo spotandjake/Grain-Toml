@@ -1,17 +1,19 @@
 module Tests
 
-include "../toml"
-include "list"
-include "buffer"
-include "array"
-include "string"
-from Toml use { type Toml, fromString }
+from "../toml.gr" include Toml
+from "list" include List
+from "buffer" include Buffer
+from "array" include Array
+from "string" include String
+use Toml.{ type Toml, fromString }
 // Sort
 let rec innerSortToml = tomlTree => {
   match (tomlTree) {
     TomlTable(tableItems) => {
-      let tableItems = List.map(((key, value)) =>
-        (key, innerSortToml(value)), tableItems)
+      let tableItems = List.map(
+        ((key, value)) => (key, innerSortToml(value)),
+        tableItems
+      )
       let tableItems = List.sort(((keyA, _), (keyB, _)) => {
         compare(keyA, keyB)
       }, tableItems)
@@ -48,8 +50,10 @@ let log = (a, b) => {
   let ab = Array.zip(a, b)
   // Output
   Array.forEach(((a, b)) => {
-    if (a == b) Buffer.addString("\x1b[32m", str)
-    else Buffer.addString("\x1b[31m", str)
+    if (a == b)
+      Buffer.addString("\x1b[32m", str)
+    else
+      Buffer.addString("\x1b[31m", str)
     Buffer.addChar(a, str)
     Buffer.addString("\x1b[0m", str)
   }, ab)
@@ -79,16 +83,16 @@ let b = Ok(
                             [
                               ("dance-with", TomlString("Dot")),
                               ("dot", TomlString("again?")),
-                            ]
+                            ],
                           ),
                         ),
-                      ]
+                      ],
                     ),
                   ),
-                ]
+                ],
               ),
             ),
-          ]
+          ],
         ),
       ),
       (
@@ -100,22 +104,22 @@ let b = Ok(
                 (
                   "a",
                   TomlTable(
-                    [("b", TomlTable([("c", TomlInt(1)), ("d", TomlInt(2))]))]
+                    [("b", TomlTable([("c", TomlInt(1)), ("d", TomlInt(2))]))],
                   ),
                 ),
-              ]
+              ],
             ),
             TomlTable(
               [
                 (
                   "a",
                   TomlTable(
-                    [("b", TomlTable([("c", TomlInt(3)), ("d", TomlInt(4))]))]
+                    [("b", TomlTable([("c", TomlInt(3)), ("d", TomlInt(4))]))],
                   ),
                 ),
-              ]
+              ],
             ),
-          ]
+          ],
         ),
       ),
       (
@@ -134,7 +138,7 @@ let b = Ok(
             ("j", TomlInt(10)),
             ("k", TomlInt(11)),
             ("l", TomlInt(12)),
-          ]
+          ],
         ),
       ),
       (
@@ -152,31 +156,31 @@ let b = Ok(
                         (
                           "dot",
                           TomlTable(
-                            [("dot", TomlTable([("dot", TomlInt(42))]))]
+                            [("dot", TomlTable([("dot", TomlInt(42))]))],
                           ),
                         ),
-                      ]
+                      ],
                     ),
                   ),
-                ]
+                ],
               ),
             ),
-          ]
+          ],
         ),
       ),
       (
         "name",
         TomlTable(
-          [("first", TomlString("Arthur")), ("last", TomlString("Dent"))]
+          [("first", TomlString("Arthur")), ("last", TomlString("Dent"))],
         ),
       ),
       (
         "tbl",
         TomlTable(
-          [("a", TomlTable([("b", TomlTable([("c", TomlFloat(42.666))]))]))]
+          [("a", TomlTable([("b", TomlTable([("c", TomlFloat(42.666))]))]))],
         ),
       ),
-    ]
-  )
+    ],
+  ),
 )
 log(a, b)

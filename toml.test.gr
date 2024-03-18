@@ -25,9 +25,9 @@ THE SOFTWARE.
 
 module TomlTest
 
-include "Number"
-include "./toml"
-from Toml use { fromString, type Toml }
+from "Number" include Number
+from "./toml.gr" include Toml
+use Toml.{ fromString, type Toml }
 // TODO: Invalid
 // Valid
 // Toml Array
@@ -46,8 +46,8 @@ thevoid = [[[[[]]]]]
           "thevoid",
           TomlArray([TomlArray([TomlArray([TomlArray([TomlArray([])])])])]),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 mixed = [[1, 2], [\"a\", \"b\"], [1.1, 2.1]]
@@ -62,11 +62,11 @@ mixed = [[1, 2], [\"a\", \"b\"], [1.1, 2.1]]
               TomlArray([TomlInt(1), TomlInt(2)]),
               TomlArray([TomlString("a"), TomlString("b")]),
               TomlArray([TomlFloat(1.1), TomlFloat(2.1)]),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("arrays-and-ints =  [1, [\"Arrays are not integers.\"]]") ==
   Ok(
@@ -75,23 +75,21 @@ assert fromString("arrays-and-ints =  [1, [\"Arrays are not integers.\"]]") ==
         (
           "arrays-and-ints",
           TomlArray(
-            [TomlInt(1), TomlArray([TomlString("Arrays are not integers.")])]
+            [TomlInt(1), TomlArray([TomlString("Arrays are not integers.")])],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("ints-and-floats = [1, 1.1]") ==
   Ok(TomlTable([("ints-and-floats", TomlArray([TomlInt(1), TomlFloat(1.1)]))]))
 assert fromString("strings-and-ints = [\"hi\", 42]") ==
   Ok(
     TomlTable(
-      [("strings-and-ints", TomlArray([TomlString("hi"), TomlInt(42)]))]
-    )
+      [("strings-and-ints", TomlArray([TomlString("hi"), TomlInt(42)]))],
+    ),
   )
-assert fromString(
-  "a = { name = \"Baz Qux\", email = \"bazqux@example.com\" }"
-) ==
+assert fromString("a = { name = \"Baz Qux\", email = \"bazqux@example.com\" }") ==
   Ok(
     TomlTable(
       [
@@ -101,11 +99,11 @@ assert fromString(
             [
               ("name", TomlString("Baz Qux")),
               ("email", TomlString("bazqux@example.com")),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -135,19 +133,19 @@ mixed = [{k=\"a\"}, \"b\", 1]
                   ("name", TomlString("Baz Qux")),
                   ("email", TomlString("bazqux@example.com")),
                   ("url", TomlString("https://example.com/bazqux")),
-                ]
+                ],
               ),
-            ]
+            ],
           ),
         ),
         (
           "mixed",
           TomlArray(
-            [TomlTable([("k", TomlString("a"))]), TomlString("b"), TomlInt(1)]
+            [TomlTable([("k", TomlString("a"))]), TomlString("b"), TomlInt(1)],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 nest = [
@@ -168,13 +166,13 @@ nest = [
                 [
                   TomlArray([TomlString("a")]),
                   TomlArray([TomlInt(1), TomlInt(2), TomlArray([TomlInt(3)])]),
-                ]
+                ],
               ),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 a = [ { b = {} } ]
@@ -187,11 +185,11 @@ assert fromString("nest = [[\"a\"], [\"b\"]]") ==
         (
           "nest",
           TomlArray(
-            [TomlArray([TomlString("a")]), TomlArray([TomlString("b")])]
+            [TomlArray([TomlString("a")]), TomlArray([TomlString("b")])],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("ints = [1,2,3]") ==
   Ok(TomlTable([("ints", TomlArray([TomlInt(1), TomlInt(2), TomlInt(3)]))]))
@@ -214,11 +212,11 @@ title = [
             [
               TomlString("Client: \"XXXX\", Job: XXXX"),
               TomlString("Code: XXXX"),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -235,31 +233,29 @@ Job: XXXX\"\"\",
         (
           "title",
           TomlArray(
-            [TomlString("Client: XXXX,\nJob: XXXX"), TomlString("Code: XXXX")]
+            [TomlString("Client: XXXX,\nJob: XXXX"), TomlString("Code: XXXX")],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
-assert fromString(
-  "
+assert fromString("
 title = [
 \"Client: XXXX, Job: XXXX\",
 \"Code: XXXX\"
 ]
-"
-) ==
+") ==
   Ok(
     TomlTable(
       [
         (
           "title",
           TomlArray(
-            [TomlString("Client: XXXX, Job: XXXX"), TomlString("Code: XXXX")]
+            [TomlString("Client: XXXX, Job: XXXX"), TomlString("Code: XXXX")],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -277,19 +273,19 @@ string_array = [ \"all\", 'strings', \"\"\"are the same\"\"\", '''type''']
               TomlString("strings"),
               TomlString("are the same"),
               TomlString("type"),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 foo = [ { bar=\"\\\"{{baz}}\\\"\"} ]
 ") ==
   Ok(
     TomlTable(
-      [("foo", TomlArray([TomlTable([("bar", TomlString("\"{{baz}}\""))])]))]
-    )
+      [("foo", TomlArray([TomlTable([("bar", TomlString("\"{{baz}}\""))])]))],
+    ),
   )
 // Bool
 assert fromString("
@@ -364,7 +360,7 @@ tbl1 = { \"#\" = '}#'}#}}
               ("8", TomlString("eight")),
               ("ten", TomlFloat(1000.0)),
               ("eleven", TomlFloat(11.1)),
-            ]
+            ],
           ),
         ),
         (
@@ -374,9 +370,7 @@ tbl1 = { \"#\" = '}#'}#}}
               ("#!", TomlString("hash bang")),
               (
                 "arr3",
-                TomlArray(
-                  [TomlString("#"), TomlString("#"), TomlString("###")]
-                ),
+                TomlArray([TomlString("#"), TomlString("#"), TomlString("###")]),
               ),
               (
                 "arr4",
@@ -387,17 +381,17 @@ tbl1 = { \"#\" = '}#'}#}}
                 TomlArray(
                   [
                     TomlArray(
-                      [TomlArray([TomlArray([TomlArray([TomlString("#")])])])]
+                      [TomlArray([TomlArray([TomlArray([TomlString("#")])])])],
                     ),
-                  ]
+                  ],
                 ),
               ),
               ("tbl1", TomlTable([("#", TomlString("}#"))])),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 // TODO: DateTime
 // Float
@@ -424,8 +418,8 @@ minustenth = -1E-1
         ("pointlower", TomlFloat(310.0)),
         ("pointupper", TomlFloat(310.0)),
         ("minustenth", TomlFloat(-0.1)),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -442,8 +436,8 @@ zero-intpart = 0.123
         ("pospi", TomlFloat(3.14)),
         ("negpi", TomlFloat(-3.14)),
         ("zero-intpart", TomlFloat(0.123)),
-      ]
-    )
+      ],
+    ),
   )
 assert match (fromString("nan = nan")) {
   Ok(TomlTable([("nan", TomlFloat(n))])) when Number.isNaN(n) => true,
@@ -457,51 +451,45 @@ assert match (fromString("pos_nan = +nan")) {
   Ok(TomlTable([("pos_nan", TomlFloat(n))])) when Number.isNaN(n) => true,
   _ => false,
 }
-assert fromString(
-  "
+assert fromString("
 infinity = inf
 infinity_neg = -inf
 infinity_plus = +inf
-"
-) ==
+") ==
   Ok(
     TomlTable(
       [
         ("infinity", TomlFloat(Infinity)),
         ("infinity_neg", TomlFloat(-Infinity)),
         ("infinity_plus", TomlFloat(Infinity)),
-      ]
-    )
+      ],
+    ),
   )
-assert fromString(
-  "
+assert fromString("
 longpi = 3.141592653589793
 neglongpi = -3.141592653589793
-"
-) ==
+") ==
   Ok(
     TomlTable(
       [
         ("longpi", TomlFloat(3.141592653589793)),
         ("neglongpi", TomlFloat(-3.141592653589793)),
-      ]
-    )
+      ],
+    ),
   )
-assert fromString(
-  "
+assert fromString("
 before = 3_141.5927
 after = 3141.592_7
 exponent = 3e1_4
-"
-) ==
+") ==
   Ok(
     TomlTable(
       [
         ("before", TomlFloat(3_141.5927)),
         ("after", TomlFloat(3141.592_7)),
         ("exponent", TomlFloat(3e1_4)),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -525,8 +513,8 @@ exponent-signed-neg = -0e0
         ("exponent-two-0", TomlFloat(0e00)),
         ("exponent-signed-pos", TomlFloat(0e0)),
         ("exponent-signed-neg", TomlFloat(-0e0)),
-      ]
-    )
+      ],
+    ),
   )
 // inline-table
 assert fromString(
@@ -547,33 +535,33 @@ people = [{first_name = \"Bruce\", last_name = \"Springsteen\"},
                 [
                   ("first_name", TomlString("Bruce")),
                   ("last_name", TomlString("Springsteen")),
-                ]
+                ],
               ),
               TomlTable(
                 [
                   ("first_name", TomlString("Eric")),
                   ("last_name", TomlString("Clapton")),
-                ]
+                ],
               ),
               TomlTable(
                 [
                   ("first_name", TomlString("Bob")),
                   ("last_name", TomlString("Seger")),
-                ]
+                ],
               ),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 a = {a = true, b = false}
 ") ==
   Ok(
     TomlTable(
-      [("a", TomlTable([("a", TomlBool(true)), ("b", TomlBool(false))]))]
-    )
+      [("a", TomlTable([("a", TomlBool(true)), ("b", TomlBool(false))]))],
+    ),
   )
 assert fromString(
   "
@@ -598,13 +586,10 @@ nested_empty = {\"empty\"={}}
           "empty_in_array2",
           TomlArray([TomlTable([]), TomlTable([("not_empty", TomlInt(1))])]),
         ),
-        (
-          "many_empty",
-          TomlArray([TomlTable([]), TomlTable([]), TomlTable([])]),
-        ),
+        ("many_empty", TomlArray([TomlTable([]), TomlTable([]), TomlTable([])])),
         ("nested_empty", TomlTable([("empty", TomlTable([]))])),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -621,11 +606,11 @@ black = { python=\">3.6\", version=\">=18.9b0\", allow_prereleases=true }
               ("python", TomlString(">3.6")),
               ("version", TomlString(">=18.9b0")),
               ("allow_prereleases", TomlBool(true)),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -645,7 +630,7 @@ table-array = [{ \"a\" = 1 }, { \"b\" = 2 }]
             [
               ("first", TomlString("Tom")),
               ("last", TomlString("Preston-Werner")),
-            ]
+            ],
           ),
         ),
         ("point", TomlTable([("x", TomlInt(1)), ("y", TomlInt(2))])),
@@ -654,11 +639,11 @@ table-array = [{ \"a\" = 1 }, { \"b\" = 2 }]
         (
           "table-array",
           TomlArray(
-            [TomlTable([("a", TomlInt(1))]), TomlTable([("b", TomlInt(2))])]
+            [TomlTable([("a", TomlInt(1))]), TomlTable([("b", TomlInt(2))])],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 // TODO: Inline-Table.key-dotted - Support & Array Keys & Proper Table Keys
 assert fromString(
@@ -680,11 +665,11 @@ another line\"\"\", d = 4 }
               ("b", TomlString("multiline\n")),
               ("c", TomlString("and yet\nanother line")),
               ("d", TomlInt(4)),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -711,7 +696,7 @@ arr_arr_tbls  = [ [ { one = 1 }, { two = 2 } ] ]
         (
           "tbl_arr_tbl",
           TomlTable(
-            [("arr_tbl", TomlArray([TomlTable([("one", TomlInt(1))])]))]
+            [("arr_tbl", TomlArray([TomlTable([("one", TomlInt(1))])]))],
           ),
         ),
         (
@@ -731,13 +716,13 @@ arr_arr_tbls  = [ [ { one = 1 }, { two = 2 } ] ]
                 [
                   TomlTable([("one", TomlInt(1))]),
                   TomlTable([("two", TomlInt(2))]),
-                ]
+                ],
               ),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -780,12 +765,12 @@ tbl-2 = {
               ("1", TomlInt(2)),
               ("arr", TomlArray([TomlInt(1), TomlInt(2), TomlInt(3)])),
               ("tbl", TomlTable([("k", TomlInt(1))])),
-            ]
+            ],
           ),
         ),
         ("tbl-2", TomlTable([("k", TomlString("\tHello\n\t"))])),
-      ]
-    )
+      ],
+    ),
   )
 // integer
 assert fromString("
@@ -801,8 +786,8 @@ zero = 0
         ("posanswer", TomlInt(42)),
         ("neganswer", TomlInt(-42)),
         ("zero", TomlInt(0)),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -831,8 +816,8 @@ hex4 = 0x00987
         ("hex2", TomlInt(0xdeadbeef)),
         ("hex3", TomlInt(0xdead_beef)),
         ("hex4", TomlInt(0x00987)),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -845,8 +830,8 @@ int64-max-neg = -9223372036854775808
       [
         ("int64-max", TomlInt(9223372036854775807)),
         ("int64-max-neg", TomlInt(-9223372036854775808)),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 kilo = 1_000
@@ -887,8 +872,8 @@ b3 = 0b00000
         ("b1", TomlInt(0)),
         ("b2", TomlInt(0)),
         ("b3", TomlInt(0)),
-      ]
-    )
+      ],
+    ),
   )
 // Key
 assert fromString(
@@ -922,8 +907,8 @@ _ = false
         ("34-11", TomlInt(23)),
         ("2018_10", TomlTable([("001", TomlInt(1))])),
         ("a-a-a", TomlTable([("_", TomlBool(false))])),
-      ]
-    )
+      ],
+    ),
   )
 // TODO: key.case-sensitive
 // TODO: key.dotted-empty
@@ -1019,8 +1004,8 @@ unitseparator = \"This string has a \\u001F unit separator control code.\"
           "unitseparator",
           TomlString("This string has a \u001f unit separator control code."),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -1061,8 +1046,8 @@ multiline-literal = '''
         ),
         ("literal", TomlString("\\x20 \\x09 \\x0d\\x0a")),
         ("multiline-literal", TomlString("\\x20 \\x09 \\x0d\\x0a\n")),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -1080,8 +1065,8 @@ equivalent_three = \"\"\"\\
           "equivalent_three",
           TomlString("The quick brown fox jumps over the lazy dog."),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("0=\"\"\"\\\r\n\"\"\"") ==
   Ok(TomlTable([("0", TomlString(""))]))
@@ -1123,8 +1108,8 @@ escaped = \"\"\"lol\\\"\"\"\"\"\"
         ("mismatch1", TomlString("aaa'''bbb")),
         ("mismatch2", TomlString("aaa\"\"\"bbb")),
         ("escaped", TomlString("lol\"\"\"")),
-      ]
-    )
+      ],
+    ),
   )
 
 assert fromString(
@@ -1205,8 +1190,8 @@ escape-bs-3 = \"\"\"a \\\\\\\\
         ("escape-bs-1", TomlString("a \\\nb")),
         ("escape-bs-2", TomlString("a \\b")),
         ("escape-bs-3", TomlString("a \\\\\n  b")),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -1226,8 +1211,8 @@ lit_nl_uni = 'val\\ue'
         ("lit_nl_end", TomlString("value\\n")),
         ("lit_nl_mid", TomlString("val\\nue")),
         ("lit_nl_uni", TomlString("val\\ue")),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -1259,12 +1244,12 @@ multiline_with_tab = '''First line
         (
           "multiline",
           TomlString(
-            "This string\nhas ' a quote character\nand more than\none newline\nin it."
+            "This string\nhas ' a quote character\nand more than\none newline\nin it.",
           ),
         ),
         ("multiline_with_tab", TomlString("First line\n\t Followed by a tab")),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString(
   "
@@ -1294,12 +1279,9 @@ backslash = 'This string has a \\\\ backslash character.'
           TomlString("This string has a \\r carriage return character."),
         ),
         ("slash", TomlString("This string has a \\/ slash character.")),
-        (
-          "backslash",
-          TomlString("This string has a \\\\ backslash character."),
-        ),
-      ]
-    )
+        ("backslash", TomlString("This string has a \\\\ backslash character.")),
+      ],
+    ),
   )
 assert fromString("
 answer = \"You are not drinking enough whisky.\"
@@ -1323,8 +1305,8 @@ poundcomment = \"But there are # some comments here.\" # Did I # mess you up?
       [
         ("pound", TomlString("We see no # comments here.")),
         ("poundcomment", TomlString("But there are # some comments here.")),
-      ]
-    )
+      ],
+    ),
   )
 // TODO: table
 // Random
@@ -1346,11 +1328,11 @@ better = 43
             [
               ("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))])),
               ("better", TomlInt(43)),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 [a]
@@ -1368,11 +1350,11 @@ answer = 42
             [
               ("better", TomlInt(43)),
               ("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))])),
-            ]
+            ],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("
 [a.b.c]
@@ -1384,11 +1366,11 @@ answer = 42
         (
           "a",
           TomlTable(
-            [("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))]))]
+            [("b", TomlTable([("c", TomlTable([("answer", TomlInt(42))]))]))],
           ),
         ),
-      ]
-    )
+      ],
+    ),
   )
 assert fromString("os = \"DOS\"\r\nnewline = \"crlf\"\r\n") ==
   Ok(TomlTable([("os", TomlString("DOS")), ("newline", TomlString("crlf"))]))

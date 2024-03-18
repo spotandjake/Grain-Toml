@@ -2,16 +2,15 @@
 
 module TestGenerator
 
-include "sys/file"
-include "int64"
-include "array"
-include "list"
-include "string"
-include "buffer"
-include "bytes"
-
-include "./json"
-from Json use { type JSON, parse }
+from "wasi/file" include File
+from "int64" include Int64
+from "array" include Array
+from "list" include List
+from "string" include String
+from "buffer" include Buffer
+from "bytes" include Bytes
+from "json" include Json
+use Json.{ type Json, parse }
 // TODO: Output all tests with a \r\n over a \n
 // Types
 record TomlFlags {
@@ -69,7 +68,7 @@ let writeFile = (filePath, fileContents) => {
   }
 }
 let rec getTests = (root, suiteName, requireOutput) => {
-  from File use { type DirectoryEntry, type Filetype }
+  use File.{ type DirectoryEntry, type Filetype }
   // Open The Path
   let pathRef = File.open(
     root,
@@ -111,19 +110,25 @@ let rec getTests = (root, suiteName, requireOutput) => {
         Err(err) => fail "Failed To Get Tests",
       }
       // Filter Files
-      let tests = Array.filter(({ inode, filetype, path }) =>
-        filetype == RegularFile, subPaths)
+      let tests = Array.filter(
+        ({ inode, filetype, path }) => filetype == RegularFile,
+        subPaths
+      )
       // Filter Directories
-      let tomlFiles = Array.filter(({ inode, filetype, path }) =>
-        String.endsWith(".toml", path), tests)
+      let tomlFiles = Array.filter(
+        ({ inode, filetype, path }) => String.endsWith(".toml", path),
+        tests
+      )
       // Map
       let root = root ++ path ++ "/"
       let tomlPaths = Array.map(({ inode, filetype, path }) => {
         let outputName = match (requireOutput) {
           true => {
             let jsonPath = String.replaceLast(".toml", ".json", path)
-            let outputFile = Array.find(({ inode, filetype, path }) =>
-              path == jsonPath, subPaths)
+            let outputFile = Array.find(
+              ({ inode, filetype, path }) => path == jsonPath,
+              subPaths
+            )
             match (outputFile) {
               Some({ inode, filetype, path }) => path,
               None => fail "Failed To Find Output File",
@@ -139,8 +144,10 @@ let rec getTests = (root, suiteName, requireOutput) => {
       let outputName = match (requireOutput) {
         true => {
           let jsonPath = String.replaceLast(".toml", ".json", path)
-          let outputFile = Array.find(({ inode, filetype, path }) =>
-            path == jsonPath, subPaths)
+          let outputFile = Array.find(
+            ({ inode, filetype, path }) => path == jsonPath,
+            subPaths
+          )
           match (outputFile) {
             Some({ inode, filetype, path }) => path,
             None => fail "Failed To Find Output File",
@@ -165,11 +172,11 @@ let sanitizeGrainString = str => {
 }
 let rec jsonToTomlStr = (json, buffer, flags) => {
   match (json) {
-    JSONNull => fail "Invalid Json Toml Conversion",
-    JSONBoolean(_) => fail "Invalid Json Toml Conversion",
-    JSONNumber(_) => fail "Invalid Json Toml Conversion",
-    JSONString(str) => fail "Invalid Json Toml Conversion",
-    JSONArray(arrItems) => {
+    JsonNull => fail "Invalid Json Toml Conversion",
+    JsonBoolean(_) => fail "Invalid Json Toml Conversion",
+    JsonNumber(_) => fail "Invalid Json Toml Conversion",
+    JsonString(str) => fail "Invalid Json Toml Conversion",
+    JsonArray(arrItems) => {
       Buffer.addString("TomlArray([\n", buffer)
       List.forEach(jsonItem => {
         jsonToTomlStr(jsonItem, buffer, flags)
@@ -177,9 +184,7 @@ let rec jsonToTomlStr = (json, buffer, flags) => {
       }, arrItems)
       Buffer.addString("])", buffer)
     },
-    JSONObject(
-      [("type", JSONString(jsonType)), ("value", JSONString(str))]
-    ) => {
+    JsonObject([("type", JsonString(jsonType)), ("value", JsonString(str))]) => {
       match (jsonType) {
         "string" =>
           Buffer.addString(
@@ -193,7 +198,10 @@ let rec jsonToTomlStr = (json, buffer, flags) => {
           } else if (str == "-Inf" || str == "-inf") {
             Buffer.addString("TomlFloat(-Infinity)", buffer)
           } else if (
-            str == "Inf" || str == "+Inf" || str == "+inf" || str == "inf"
+            str == "Inf" ||
+            str == "+Inf" ||
+            str == "+inf" ||
+            str == "inf"
           ) {
             Buffer.addString("TomlInt(Infinity)", buffer)
           } else {
@@ -220,7 +228,7 @@ let rec jsonToTomlStr = (json, buffer, flags) => {
         _ => fail "Invalid Json Toml Conversion",
       }
     },
-    JSONObject(jsonItems) => {
+    JsonObject(jsonItems) => {
       Buffer.addString("TomlTable([\n", buffer)
       List.forEach(((jsonKey, jsonValue)) => {
         Buffer.addString("(", buffer)
@@ -324,21 +332,20 @@ let buildValidTest = (grainTestProgram, files) => {
 }
 let skipVersionTests = (version, tests) => {
   let exclusions = match (version) {
-    TomlNext =>
-      [
-        "invalid/datetime/no-secs", // Times without seconds is no longer invalid.
-        "invalid/string/basic-byte-escapes", // \x is now valid.
-        "invalid/inline-table/trailing-comma",
-        "invalid/inline-table/linebreak-1",
-        "invalid/inline-table/linebreak-2",
-        "invalid/inline-table/linebreak-3",
-        "invalid/inline-table/linebreak-4",
-        "invalid/key/special-character", // Unicode can now be in bare keys.
-        "invalid/control/comment-del", // More Control Characters Are Now Allowing In Comments
-        "invalid/control/comment-lf", // More Control Characters Are Now Allowing In Comments
-        "invalid/control/comment-null", // More Control Characters Are Now Allowing In Comments
-        "invalid/control/comment-us", // More Control Characters Are Now Allowing In Comments
-      ],
+    TomlNext => [
+      "invalid/datetime/no-secs", // Times without seconds is no longer invalid.
+      "invalid/string/basic-byte-escapes", // \x is now valid.
+      "invalid/inline-table/trailing-comma",
+      "invalid/inline-table/linebreak-1",
+      "invalid/inline-table/linebreak-2",
+      "invalid/inline-table/linebreak-3",
+      "invalid/inline-table/linebreak-4",
+      "invalid/key/special-character", // Unicode can now be in bare keys.
+      "invalid/control/comment-del", // More Control Characters Are Now Allowing In Comments
+      "invalid/control/comment-lf", // More Control Characters Are Now Allowing In Comments
+      "invalid/control/comment-null", // More Control Characters Are Now Allowing In Comments
+      "invalid/control/comment-us", // More Control Characters Are Now Allowing In Comments
+    ],
   }
   // Filter
   List.map(((testSuite, tests)) => {
@@ -385,10 +392,10 @@ THE SOFTWARE.
 
 module TomlTest
 
-include \"../toml\"
-include \"result\"
-include \"list\"
-from Toml use { fromString, type Toml }
+from \"../toml.gr\" include Toml
+from \"result\" include Result
+from \"list\" include List
+use Toml.{ fromString, type Toml }
 // Sort
 let rec innerSortToml = tomlTree => {
   match (tomlTree) {
